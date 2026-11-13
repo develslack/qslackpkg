@@ -33,7 +33,7 @@ struct SboPackageInfo {
     QString version;
     QString shortDesc;
     QStringList requires;
-    QString installedFull; // Vacío si no está instalado
+    QString installedFull;
     bool hasUpdate = false;
 };
 
@@ -56,6 +56,7 @@ private slots:
     void showPendingUpdatesDialog();
 
     // Sbopkg slots
+    void runInstallSbopkg(); // <-- Nuevo slot para descargar e instalar sbopkg
     void runSboSync();
     void filterSboTable();
     void onInstallSboClicked(const SboPackageInfo &pkg);
@@ -106,6 +107,7 @@ private:
 
     // UI Pestaña SlackBuilds (sbopkg)
     QLabel *m_sboStatusLabel;
+    QPushButton *m_btnInstallSbopkg; // <-- Botón condicional de instalación de sbopkg
     QPushButton *m_btnSboSync;
     QComboBox *m_comboSboCategory;
     QLineEdit *m_editSboSearch;

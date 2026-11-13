@@ -16,16 +16,59 @@
 #include <QApplication>
 #include <QStyle>
 #include <QCollator>
+#include <QPixmap>
+#include <QIcon>
 #include "mainwindow.h"
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
-    setWindowTitle("QSlackpkg - Centro de Software y Actualizaciones para Slackware");
-    resize(1300, 680);
+    setWindowTitle("QSlackpkg - Package Manager for Slackware Linux");
+    resize(1300, 740);
+
+    // Cargar logotipo desde recurso embebido o ruta local relativa
+    QPixmap logoPixmap(":/img/Linux-Slackware-Logo-Vector.png");
+    if (logoPixmap.isNull()) {
+        logoPixmap.load(QCoreApplication::applicationDirPath() + "/img/Linux-Slackware-Logo-Vector.png");
+    }
+    if (!logoPixmap.isNull()) {
+        setWindowIcon(QIcon(logoPixmap));
+    }
 
     QWidget *centralWidget = new QWidget(this);
     QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
+    mainLayout->setSpacing(10);
 
-    // 1. Banner superior unificado
+    // ========================================================================
+    // 0. CABECERA VISUAL (Logotipo Slackware + Inscripción)
+    // ========================================================================
+    QWidget *brandHeader = new QWidget(this);
+    QVBoxLayout *brandLayout = new QVBoxLayout(brandHeader);
+    brandLayout->setContentsMargins(0, 4, 0, 4);
+    brandLayout->setSpacing(4);
+    brandLayout->setAlignment(Qt::AlignCenter);
+
+    QLabel *lblLogo = new QLabel(this);
+    lblLogo->setAlignment(Qt::AlignCenter);
+    if (!logoPixmap.isNull()) {
+        lblLogo->setPixmap(logoPixmap.scaledToHeight(68, Qt::SmoothTransformation));
+    } else {
+        lblLogo->setText("SLACKWARE LINUX");
+        lblLogo->setStyleSheet("font-size: 18pt; font-weight: bold; color: #1a237e;");
+    }
+
+    QLabel *lblSubtitle = new QLabel("Package Manager for Slackware Linux", this);
+    lblSubtitle->setAlignment(Qt::AlignCenter);
+    lblSubtitle->setStyleSheet(
+        "font-size: 11.5pt; font-weight: bold; color: #37474f; "
+        "letter-spacing: 0.5px; padding-bottom: 2px;"
+    );
+
+    brandLayout->addWidget(lblLogo);
+    brandLayout->addWidget(lblSubtitle);
+    mainLayout->addWidget(brandHeader);
+
+    // ========================================================================
+    // 1. BANNER SUPERIOR DE ESTADO (Panel Verde / Naranja)
+    // ========================================================================
     QWidget *bannerContainer = new QWidget(this);
     bannerContainer->setObjectName("bannerContainer");
     QHBoxLayout *bannerLayout = new QHBoxLayout(bannerContainer);
@@ -51,13 +94,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     bannerContainer->setStyleSheet("#bannerContainer { background-color: #2e7d32; border-radius: 6px; }");
     mainLayout->addWidget(bannerContainer);
 
-    // 2. Contenedor de Pestañas (Sistema Oficial vs SlackBuilds.org)
+    // ========================================================================
+    // 2. CONTENEDOR DE PESTAÑAS (Sistema Oficial vs SlackBuilds.org)
+    // ========================================================================
     m_tabs = new QTabWidget(this);
     m_tabs->addTab(createOfficialTab(), "Sistema Oficial (slackpkg)");
     m_tabs->addTab(createSboTab(), "Repositorio SlackBuilds.org (sbopkg)");
     mainLayout->addWidget(m_tabs);
 
-    // 3. Barra inferior de terminal compartida
+    // ========================================================================
+    // 3. BARRA INFERIOR DE TERMINAL COMPARTIDA
+    // ========================================================================
     QHBoxLayout *footerLayout = new QHBoxLayout();
     m_btnToggleConsole = new QPushButton("Mostrar detalles de terminal", this);
     m_btnToggleConsole->setCheckable(true);
@@ -162,8 +209,17 @@ QWidget* MainWindow::createSboTab() {
     QWidget *tab = new QWidget(this);
     QVBoxLayout *layout = new QVBoxLayout(tab);
 
-    // Barra de herramientas SBo
     QHBoxLayout *topBar = new QHBoxLayout();
+
+    m_btnInstallSbopkg = new QPushButton("Descargar e Instalar sbopkg (0.38.3)", this);
+    m_btnInstallSbopkg->setCursor(Qt::PointingHandCursor);
+    m_btnInstallSbopkg->setStyleSheet(
+        "QPushButton { background-color: #1565c0; color: white; font-weight: bold; "
+        "padding: 6px 14px; border-radius: 4px; }"
+        "QPushButton:hover { background-color: #0d47a1; }"
+    );
+    m_btnInstallSbopkg->setVisible(false);
+
     m_btnSboSync = new QPushButton("Sincronizar SlackBuilds (sbopkg -r)", this);
     m_btnSboSync->setStyleSheet("font-weight: bold;");
 
@@ -179,6 +235,7 @@ QWidget* MainWindow::createSboTab() {
 
     m_chkSboUpdatesOnly = new QCheckBox("Solo con actualización disponible", this);
 
+    topBar->addWidget(m_btnInstallSbopkg);
     topBar->addWidget(m_btnSboSync);
     topBar->addSpacing(12);
     topBar->addWidget(lblCat);
@@ -189,12 +246,10 @@ QWidget* MainWindow::createSboTab() {
     topBar->addWidget(m_chkSboUpdatesOnly);
     layout->addLayout(topBar);
 
-    // Etiqueta informativa SBo
     m_sboStatusLabel = new QLabel("Analizando repositorio local de SlackBuilds...", this);
     m_sboStatusLabel->setStyleSheet("color: #37474f; font-weight: bold; padding: 4px;");
     layout->addWidget(m_sboStatusLabel);
 
-    // Tabla SBo
     m_sboTable = new QTableWidget(0, 6, tab);
     m_sboTable->setHorizontalHeaderLabels({
         "Paquete SBo",
@@ -216,6 +271,7 @@ QWidget* MainWindow::createSboTab() {
     m_sboTable->setAlternatingRowColors(true);
     layout->addWidget(m_sboTable);
 
+    connect(m_btnInstallSbopkg, &QPushButton::clicked, this, &MainWindow::runInstallSbopkg);
     connect(m_btnSboSync, &QPushButton::clicked, this, &MainWindow::runSboSync);
     connect(m_comboSboCategory, &QComboBox::currentTextChanged, this, &MainWindow::filterSboTable);
     connect(m_editSboSearch, &QLineEdit::textChanged, this, &MainWindow::filterSboTable);
@@ -233,8 +289,12 @@ MainWindow::~MainWindow() {
 
 void MainWindow::setupTrayIcon() {
     m_trayIcon = new QSystemTrayIcon(this);
-    m_trayIcon->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
-    m_trayIcon->setToolTip("QSlackpkg - Centro de Software");
+    if (!windowIcon().isNull()) {
+        m_trayIcon->setIcon(windowIcon());
+    } else {
+        m_trayIcon->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
+    }
+    m_trayIcon->setToolTip("QSlackpkg - Package Manager for Slackware Linux");
 
     m_trayMenu = new QMenu(this);
     QAction *showAction = m_trayMenu->addAction("Abrir Centro de Software");
@@ -554,7 +614,11 @@ void MainWindow::scanPendingUpgrades() {
         if (bannerContainer) bannerContainer->setStyleSheet("#bannerContainer { background-color: #2e7d32; border-radius: 6px; }");
         m_statusBanner->setText("Sistema base al día. Coincide con slackpkg: 0 paquetes pendientes.");
         m_btnPendingDetails->setText("0 paquetes oficiales para actualizar");
-        m_trayIcon->setIcon(style()->standardIcon(QStyle::SP_DialogApplyButton));
+        if (!windowIcon().isNull()) {
+            m_trayIcon->setIcon(windowIcon());
+        } else {
+            m_trayIcon->setIcon(style()->standardIcon(QStyle::SP_DialogApplyButton));
+        }
     }
 }
 
@@ -615,11 +679,10 @@ void MainWindow::showPendingUpdatesDialog() {
 }
 
 // ============================================================================
-// MOTOR SLACKBUILDS.ORG (SBOPKG + RESOLUCIÓN DE DEPENDENCIAS)
+// MOTOR SLACKBUILDS.ORG (SBOPKG + INSTALACIÓN ASISTIDA + RESOLUCIÓN DE DEPS)
 // ============================================================================
 
 QString MainWindow::detectSboRepoPath() {
-    // Buscamos la ruta estándar de sbopkg (ej. /var/lib/sbopkg/SBo/15.0)
     QDir baseDir("/var/lib/sbopkg/SBo");
     if (!baseDir.exists()) return QString();
 
@@ -635,22 +698,39 @@ QString MainWindow::detectSboRepoPath() {
 
 void MainWindow::scanSboRepository() {
     m_sboCatalog.clear();
-    QString repoPath = detectSboRepoPath();
 
-    if (repoPath.isEmpty()) {
-        if (!QFile::exists("/usr/sbin/sbopkg")) {
-            m_sboStatusLabel->setText("sbopkg no está instalado (/usr/sbin/sbopkg). Instálalo para habilitar la tienda SlackBuilds.");
-        } else {
-            m_sboStatusLabel->setText("El árbol local de SlackBuilds está vacío. Pulsa 'Sincronizar SlackBuilds (sbopkg -r)' para descargarlo.");
-        }
-        m_sboStatusLabel->setStyleSheet("color: #c62828; font-weight: bold; padding: 4px;");
+    bool isSbopkgInstalled = QFile::exists("/usr/sbin/sbopkg");
+
+    m_btnInstallSbopkg->setVisible(!isSbopkgInstalled);
+    m_btnInstallSbopkg->setEnabled(!isSbopkgInstalled);
+    m_btnSboSync->setEnabled(isSbopkgInstalled);
+    m_comboSboCategory->setEnabled(isSbopkgInstalled);
+    m_editSboSearch->setEnabled(isSbopkgInstalled);
+    m_chkSboUpdatesOnly->setEnabled(isSbopkgInstalled);
+
+    if (!isSbopkgInstalled) {
+        m_sboStatusLabel->setStyleSheet("color: #c62828; font-weight: bold; padding: 6px;");
+        m_sboStatusLabel->setText(
+            "sbopkg no está instalado en tu sistema. Haz clic en 'Descargar e Instalar sbopkg (0.38.3)' "
+            "para instalarlo automáticamente y habilitar el repositorio de SlackBuilds.org."
+        );
         m_sboTable->setRowCount(0);
         return;
     }
 
-    // 1. Indexar paquetes instalados actualmente en /var/log/packages
-    QMap<QString, QString> installedFullMap; // shortName -> fullName
-    QMap<QString, QString> installedVerMap;  // shortName -> version
+    QString repoPath = detectSboRepoPath();
+    if (repoPath.isEmpty()) {
+        m_sboStatusLabel->setStyleSheet("color: #ef6c00; font-weight: bold; padding: 6px;");
+        m_sboStatusLabel->setText(
+            "sbopkg está instalado, pero aún no has descargado el catálogo local. "
+            "Pulsa 'Sincronizar SlackBuilds (sbopkg -r)' para obtener la lista completa de software."
+        );
+        m_sboTable->setRowCount(0);
+        return;
+    }
+
+    QMap<QString, QString> installedFullMap;
+    QMap<QString, QString> installedVerMap;
     QDir pkgDir("/var/log/packages");
     for (const QString &fileName : pkgDir.entryList(QDir::Files)) {
         QStringList parts = fileName.split('-');
@@ -662,7 +742,6 @@ void MainWindow::scanSboRepository() {
         }
     }
 
-    // 2. Parsear SLACKBUILDS.TXT (es ultra rápido: lee miles de paquetes en < 40 ms)
     QFile sboIndex(repoPath + "/SLACKBUILDS.TXT");
     QSet<QString> categoriesSet;
     int sboUpdatesCount = 0;
@@ -677,7 +756,6 @@ void MainWindow::scanSboRepository() {
                 current = SboPackageInfo();
                 current.name = line.mid(16).trimmed();
             } else if (line.startsWith("SLACKBUILD LOCATION:")) {
-                // Formato: ./office/libreoffice
                 QString loc = line.mid(20).trimmed();
                 QStringList locParts = loc.split('/', Qt::SkipEmptyParts);
                 if (locParts.size() >= 2) {
@@ -689,7 +767,6 @@ void MainWindow::scanSboRepository() {
             } else if (line.startsWith("SLACKBUILD REQUIRES:")) {
                 QString reqStr = line.mid(20).trimmed();
                 if (!reqStr.isEmpty()) {
-                    // Ignoramos %README% que SBo usa como marcador informativo
                     for (const QString &r : reqStr.split(QRegularExpression("\\s+"), Qt::SkipEmptyParts)) {
                         if (r != "%README%") current.requires.append(r);
                     }
@@ -697,7 +774,6 @@ void MainWindow::scanSboRepository() {
             } else if (line.startsWith("SLACKBUILD SHORT DESCRIPTION:")) {
                 current.shortDesc = line.mid(29).trimmed();
             } else if (line.trimmed().isEmpty() && !current.name.isEmpty()) {
-                // Fin de bloque de paquete
                 if (installedFullMap.contains(current.name)) {
                     current.installedFull = installedFullMap.value(current.name);
                     QString instVer = installedVerMap.value(current.name);
@@ -713,7 +789,6 @@ void MainWindow::scanSboRepository() {
         sboIndex.close();
     }
 
-    // 3. Actualizar combo de categorías preservando selección
     QString prevCat = m_comboSboCategory->currentData().toString();
     m_comboSboCategory->blockSignals(true);
     m_comboSboCategory->clear();
@@ -728,15 +803,42 @@ void MainWindow::scanSboRepository() {
     if (idx >= 0) m_comboSboCategory->setCurrentIndex(idx);
     m_comboSboCategory->blockSignals(false);
 
-    m_sboStatusLabel->setStyleSheet("color: #0d47a1; font-weight: bold; padding: 4px;");
+    m_sboStatusLabel->setStyleSheet("color: #0d47a1; font-weight: bold; padding: 6px;");
     m_sboStatusLabel->setText(
-        QString("Catálogo SlackBuilds.org cargado: %1 paquetes disponibles en %2 categorías | Actualizaciones SBo detectadas: %3")
+        QString("Catálogo SlackBuilds.org listo: %1 paquetes en %2 categorías | Actualizaciones SBo disponibles: %3")
             .arg(m_sboCatalog.size())
             .arg(sortedCats.size())
             .arg(sboUpdatesCount)
     );
 
     filterSboTable();
+}
+
+void MainWindow::runInstallSbopkg() {
+    QMessageBox::StandardButton reply = QMessageBox::question(
+        this, "Instalar sbopkg 0.38.3",
+        "Se descargará el paquete oficial desde GitHub y se instalará en tu sistema:\n\n"
+        "URL: https://github.com/sbopkg/sbopkg/releases/download/0.38.3/sbopkg-0.38.3-noarch-1_wsr.tgz\n"
+        "Comando: installpkg sbopkg-0.38.3-noarch-1_wsr.tgz\n\n"
+        "¿Deseas continuar?",
+        QMessageBox::Yes | QMessageBox::No
+    );
+    if (reply != QMessageBox::Yes) return;
+
+    if (!m_btnToggleConsole->isChecked()) {
+        m_btnToggleConsole->setChecked(true);
+        toggleConsole();
+    }
+
+    const QString url = "https://github.com/sbopkg/sbopkg/releases/download/0.38.3/sbopkg-0.38.3-noarch-1_wsr.tgz";
+    const QString tmpPkg = "/tmp/sbopkg-0.38.3-noarch-1_wsr.tgz";
+
+    QString cmd = QString(
+        "wget -O %1 '%2' && /sbin/installpkg %1 && rm -f %1"
+    ).arg(tmpPkg, url);
+
+    executePrivilegedCommand("/bin/sh", {"-c", cmd},
+                             "Descargando e instalando sbopkg 0.38.3 en segundo plano...");
 }
 
 void MainWindow::filterSboTable() {
@@ -747,7 +849,6 @@ void MainWindow::filterSboTable() {
     m_sboTable->setUpdatesEnabled(false);
     m_sboTable->setRowCount(0);
 
-    // Limitamos el renderizado inicial si no hay filtro para mantener la UI instantánea (60 FPS)
     int maxVisible = (selectedCat.isEmpty() && searchQuery.isEmpty() && !onlyUpdates) ? 400 : 2000;
     int shown = 0;
 
@@ -797,7 +898,6 @@ void MainWindow::filterSboTable() {
         m_sboTable->setItem(row, 3, verItem);
         m_sboTable->setItem(row, 4, descItem);
 
-        // Botón contextual: Instalar / Actualizar / Reinstalar
         QWidget *cellWidget = new QWidget(m_sboTable);
         QHBoxLayout *cellLayout = new QHBoxLayout(cellWidget);
         cellLayout->setContentsMargins(6, 2, 6, 2);
@@ -844,13 +944,11 @@ void MainWindow::resolveDepsRecursive(const QString &pkgName,
 
     const SboPackageInfo &info = m_sboCatalog[pkgName];
     for (const QString &dep : info.requires) {
-        // Si la dependencia NO está instalada en el sistema, resolvemos primero sus propias dependencias
         if (!installedMap.contains(dep)) {
             resolveDepsRecursive(dep, installedMap, visited, orderedBuildList);
         }
     }
 
-    // Ordenamiento topológico post-order: las dependencias quedan antes que el paquete padre
     orderedBuildList.append(pkgName);
 }
 
@@ -862,7 +960,6 @@ QStringList MainWindow::resolveSboDependencies(const QString &pkgName, const QMa
 }
 
 void MainWindow::onInstallSboClicked(const SboPackageInfo &pkg) {
-    // 1. Obtener mapa actualizado de paquetes ya instalados en /var/log/packages
     QMap<QString, QString> installedMap;
     QDir pkgDir("/var/log/packages");
     for (const QString &fileName : pkgDir.entryList(QDir::Files)) {
@@ -873,10 +970,8 @@ void MainWindow::onInstallSboClicked(const SboPackageInfo &pkg) {
         }
     }
 
-    // 2. Resolver árbol completo de dependencias transitivas
     QStringList buildQueue = resolveSboDependencies(pkg.name, installedMap);
 
-    // 3. Mostrar diálogo de confirmación con el orden de compilación
     QDialog dialog(this);
     dialog.setWindowTitle(QString("Resolución de Dependencias SBo - %1").arg(pkg.name));
     dialog.resize(620, 400);
@@ -931,17 +1026,14 @@ void MainWindow::onInstallSboClicked(const SboPackageInfo &pkg) {
 
     if (dialog.exec() != QDialog::Accepted) return;
 
-    // 4. Generar archivo de cola .sqf temporal y lanzarlo con sbopkg -B -i
     QString sqfContent = buildQueue.join("\n") + "\n";
     QString sqfName = QString("qslackpkg_%1.sqf").arg(pkg.name);
 
-    // Mostramos la terminal para que el usuario pueda seguir el progreso de compilación en vivo
     if (!m_btnToggleConsole->isChecked()) {
         m_btnToggleConsole->setChecked(true);
         toggleConsole();
     }
 
-    // Escribimos el .sqf dentro de /var/lib/sbopkg/queues/ como root y ejecutamos sbopkg -B -i
     QString shellCmd = QString(
         "mkdir -p /var/lib/sbopkg/queues && "
         "printf '%1' > /var/lib/sbopkg/queues/%2 && "
@@ -954,9 +1046,7 @@ void MainWindow::onInstallSboClicked(const SboPackageInfo &pkg) {
 
 void MainWindow::runSboSync() {
     if (!QFile::exists("/usr/sbin/sbopkg")) {
-        QMessageBox::warning(this, "sbopkg no encontrado",
-                             "No se encontró /usr/sbin/sbopkg en el sistema.\n"
-                             "Descarga e instala el paquete sbopkg desde sbopkg.org para habilitar esta función.");
+        scanSboRepository();
         return;
     }
 
@@ -1053,7 +1143,6 @@ void MainWindow::processFinished(int exitCode, QProcess::ExitStatus exitStatus) 
     setUiEnabled(true);
     m_consoleOutput->append(QString("\n>>> Proceso finalizado (Código: %1)").arg(exitCode));
 
-    // Refrescamos ambos catálogos al finalizar cualquier operación
     scanPendingUpgrades();
     scanSboRepository();
 }
@@ -1061,7 +1150,8 @@ void MainWindow::processFinished(int exitCode, QProcess::ExitStatus exitStatus) 
 void MainWindow::setUiEnabled(bool enabled) {
     m_btnUpdate->setEnabled(enabled);
     m_btnClean->setEnabled(enabled);
-    m_btnSboSync->setEnabled(enabled);
+    m_btnInstallSbopkg->setEnabled(enabled && !QFile::exists("/usr/sbin/sbopkg"));
+    m_btnSboSync->setEnabled(enabled && QFile::exists("/usr/sbin/sbopkg"));
     m_packageTable->setEnabled(enabled);
     m_sboTable->setEnabled(enabled);
     m_progressBar->setVisible(!enabled);
