@@ -18,13 +18,13 @@
 #include <QCollator>
 #include <QPixmap>
 #include <QIcon>
+#include <QPainter>
 #include "mainwindow.h"
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     setWindowTitle("QSlackpkg - Package Manager for Slackware Linux");
     resize(1300, 740);
 
-    // Cargar logotipo desde recurso embebido o ruta local relativa
     QPixmap logoPixmap(":/img/Linux-Slackware-Logo-Vector.png");
     if (logoPixmap.isNull()) {
         logoPixmap.load(QCoreApplication::applicationDirPath() + "/img/Linux-Slackware-Logo-Vector.png");
@@ -37,9 +37,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
     mainLayout->setSpacing(10);
 
-    // ========================================================================
-    // 0. CABECERA VISUAL (Logotipo Slackware + Inscripción)
-    // ========================================================================
+    // Cabecera Visual
     QWidget *brandHeader = new QWidget(this);
     QVBoxLayout *brandLayout = new QVBoxLayout(brandHeader);
     brandLayout->setContentsMargins(0, 4, 0, 4);
@@ -66,9 +64,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     brandLayout->addWidget(lblSubtitle);
     mainLayout->addWidget(brandHeader);
 
-    // ========================================================================
-    // 1. BANNER SUPERIOR DE ESTADO (Panel Verde / Naranja)
-    // ========================================================================
+    // Banner de estado
     QWidget *bannerContainer = new QWidget(this);
     bannerContainer->setObjectName("bannerContainer");
     QHBoxLayout *bannerLayout = new QHBoxLayout(bannerContainer);
@@ -94,17 +90,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     bannerContainer->setStyleSheet("#bannerContainer { background-color: #2e7d32; border-radius: 6px; }");
     mainLayout->addWidget(bannerContainer);
 
-    // ========================================================================
-    // 2. CONTENEDOR DE PESTAÑAS (Sistema Oficial vs SlackBuilds.org)
-    // ========================================================================
+    // Pestañas
     m_tabs = new QTabWidget(this);
     m_tabs->addTab(createOfficialTab(), "Sistema Oficial (slackpkg)");
     m_tabs->addTab(createSboTab(), "Repositorio SlackBuilds.org (sbopkg)");
     mainLayout->addWidget(m_tabs);
 
-    // ========================================================================
-    // 3. BARRA INFERIOR DE TERMINAL COMPARTIDA
-    // ========================================================================
+    // Barra inferior
     QHBoxLayout *footerLayout = new QHBoxLayout();
     m_btnToggleConsole = new QPushButton("Mostrar detalles de terminal", this);
     m_btnToggleConsole->setCheckable(true);
@@ -119,14 +111,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_consoleOutput->setStyleSheet("background-color: #1e1e1e; color: #d4d4d4; font-family: monospace; font-size: 9pt;");
     mainLayout->addWidget(m_consoleOutput);
 
+    // Barra de progreso determinada con texto de porcentaje
     m_progressBar = new QProgressBar(this);
-    m_progressBar->setRange(0, 0);
+    m_progressBar->setRange(0, 100);
+    m_progressBar->setValue(0);
+    m_progressBar->setFormat("%p% - Procesando...");
     m_progressBar->setVisible(false);
     mainLayout->addWidget(m_progressBar);
 
     setCentralWidget(centralWidget);
 
-    // Procesos y Red
     m_process = new QProcess(this);
     m_process->setProcessChannelMode(QProcess::MergedChannels);
     m_netManager = new QNetworkAccessManager(this);
@@ -147,7 +141,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     setupTrayIcon();
 
-    // Conexiones generales
     connect(m_btnPendingDetails, &QPushButton::clicked, this, &MainWindow::showPendingUpdatesDialog);
     connect(m_btnToggleConsole, &QPushButton::clicked, this, &MainWindow::toggleConsole);
     connect(m_process, &QProcess::readyReadStandardOutput, this, &MainWindow::readProcessOutput);
@@ -155,12 +148,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             this, &MainWindow::processFinished);
     connect(m_netManager, &QNetworkAccessManager::finished, this, &MainWindow::onChangeLogDownloaded);
 
-    // Timer en segundo plano cada 60 min
     m_checkTimer = new QTimer(this);
     connect(m_checkTimer, &QTimer::timeout, this, &MainWindow::checkUpdatesInBackground);
     m_checkTimer->start(3600000);
 
-    // Carga inicial
     scanPendingUpgrades();
     scanSboRepository();
     QTimer::singleShot(3000, this, &MainWindow::checkUpdatesInBackground);
@@ -289,11 +280,7 @@ MainWindow::~MainWindow() {
 
 void MainWindow::setupTrayIcon() {
     m_trayIcon = new QSystemTrayIcon(this);
-    if (!windowIcon().isNull()) {
-        m_trayIcon->setIcon(windowIcon());
-    } else {
-        m_trayIcon->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
-    }
+    updateTrayIconState(StateUpToDate, 0);
     m_trayIcon->setToolTip("QSlackpkg - Package Manager for Slackware Linux");
 
     m_trayMenu = new QMenu(this);
@@ -302,7 +289,7 @@ void MainWindow::setupTrayIcon() {
     m_trayMenu->addSeparator();
     QAction *quitAction = m_trayMenu->addAction("Salir completamente");
 
-    connect(showAction, &QAction::triggered, this, &MainWindow::showNormal);
+    connect(showAction, &QAction::triggered, this, &QMainWindow::showNormal);
     connect(checkAction, &QAction::triggered, this, &MainWindow::checkUpdatesInBackground);
     connect(quitAction, &QAction::triggered, this, [this]() {
         m_forceQuit = true;
@@ -312,6 +299,41 @@ void MainWindow::setupTrayIcon() {
 
     m_trayIcon->setContextMenu(m_trayMenu);
     m_trayIcon->show();
+}
+
+void MainWindow::updateTrayIconState(TrayState state, int count) {
+    QIcon baseIcon;
+    if (state == StateUpToDate) {
+        baseIcon = style()->standardIcon(QStyle::SP_DialogApplyButton); // Escudo con tilde verde / aplicacion
+    } else if (state == StateUpdatesAvailable) {
+        baseIcon = style()->standardIcon(QStyle::SP_MessageBoxWarning); // Advertencia / actualizaciones
+    } else {
+        baseIcon = style()->standardIcon(QStyle::SP_BrowserReload); // Actualizando / trabajando
+    }
+
+    if (state == StateUpdatesAvailable && count > 0) {
+        QPixmap pixmap = baseIcon.pixmap(24, 24);
+        QPainter painter(&pixmap);
+        painter.setRenderHint(QPainter::Antialiasing);
+
+        QRect badgeRect(12, 0, 12, 12);
+        if (count > 9) badgeRect.setRight(16);
+        painter.setBrush(QColor("#e53935")); // Rojo distintivo
+        painter.setPen(Qt::NoPen);
+        painter.drawEllipse(badgeRect);
+
+        painter.setPen(Qt::white);
+        QFont font = painter.font();
+        font.setPointSize(7);
+        font.setBold(true);
+        painter.setFont(font);
+        painter.drawText(badgeRect, Qt::AlignCenter, QString::number(count));
+        painter.end();
+
+        m_trayIcon->setIcon(QIcon(pixmap));
+    } else {
+        m_trayIcon->setIcon(baseIcon);
+    }
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
@@ -391,7 +413,7 @@ void MainWindow::onChangeLogDownloaded(QNetworkReply *reply) {
                 bannerContainer->setStyleSheet("#bannerContainer { background-color: #ef6c00; border-radius: 6px; }");
             }
             m_statusBanner->setText("¡Nuevas actualizaciones en el mirror! (" + firstLine + ")");
-            m_trayIcon->setIcon(style()->standardIcon(QStyle::SP_MessageBoxWarning));
+            updateTrayIconState(StateUpdatesAvailable, 1);
             m_trayIcon->showMessage(
                 "Actualizaciones de Slackware disponibles",
                 "Se detectaron cambios en el repositorio (" + firstLine + "). Pulsa 'Sincronizar listas'.",
@@ -575,7 +597,6 @@ void MainWindow::scanPendingUpgrades() {
         m_packageTable->setItem(row, 3, instItem);
         m_packageTable->setItem(row, 4, availItem);
 
-        // Botón Remove en columna 5
         QWidget *cellWidget = new QWidget(m_packageTable);
         QHBoxLayout *cellLayout = new QHBoxLayout(cellWidget);
         cellLayout->setContentsMargins(6, 2, 6, 2);
@@ -609,16 +630,12 @@ void MainWindow::scanPendingUpgrades() {
         if (bannerContainer) bannerContainer->setStyleSheet("#bannerContainer { background-color: #ef6c00; border-radius: 6px; }");
         m_statusBanner->setText(QString("Atención: Hay %1 paquete(s) oficial(es) listos para actualizar.").arg(pendingCount));
         m_btnPendingDetails->setText(QString("Ver %1 paquete(s) a actualizar...").arg(pendingCount));
-        m_trayIcon->setIcon(style()->standardIcon(QStyle::SP_MessageBoxWarning));
+        updateTrayIconState(StateUpdatesAvailable, pendingCount);
     } else {
         if (bannerContainer) bannerContainer->setStyleSheet("#bannerContainer { background-color: #2e7d32; border-radius: 6px; }");
         m_statusBanner->setText("Sistema base al día. Coincide con slackpkg: 0 paquetes pendientes.");
         m_btnPendingDetails->setText("0 paquetes oficiales para actualizar");
-        if (!windowIcon().isNull()) {
-            m_trayIcon->setIcon(windowIcon());
-        } else {
-            m_trayIcon->setIcon(style()->standardIcon(QStyle::SP_DialogApplyButton));
-        }
+        updateTrayIconState(StateUpToDate, 0);
     }
 }
 
@@ -679,7 +696,7 @@ void MainWindow::showPendingUpdatesDialog() {
 }
 
 // ============================================================================
-// MOTOR SLACKBUILDS.ORG (SBOPKG + INSTALACIÓN ASISTIDA + RESOLUCIÓN DE DEPS)
+// MOTOR SLACKBUILDS.ORG (SBOPKG)
 // ============================================================================
 
 QString MainWindow::detectSboRepoPath() {
@@ -1067,6 +1084,7 @@ void MainWindow::executePrivilegedCommand(const QString &binaryPath, const QStri
 
     m_consoleOutput->clear();
     setUiEnabled(false);
+    updateTrayIconState(StateWorking, 0);
 
     QMap<QString, QString> proxyVars = loadProxyEnvironment();
     QStringList fullArgs;
@@ -1132,6 +1150,27 @@ void MainWindow::runRemovePackage(const QString &shortName, const QString &fullN
 void MainWindow::readProcessOutput() {
     QByteArray data = m_process->readAllStandardOutput();
     QString text = stripAnsiCodes(QString::fromUtf8(data));
+
+    // Analizar porcentaje en tiempo real para la barra de progreso
+    static QRegularExpression percentRx("(\\d{1,3})%");
+    QRegularExpressionMatch match = percentRx.match(text);
+    if (match.hasMatch()) {
+        int pct = match.captured(1).toInt();
+        if (pct >= 0 && pct <= 100) {
+            m_progressBar->setValue(pct);
+        }
+    } else {
+        static QRegularExpression stepRx("\\(\\s*(\\d+)/(\\d+)\\s*\\)");
+        QRegularExpressionMatch stepMatch = stepRx.match(text);
+        if (stepMatch.hasMatch()) {
+            int current = stepMatch.captured(1).toInt();
+            int total = stepMatch.captured(2).toInt();
+            if (total > 0) {
+                int pct = (current * 100) / total;
+                m_progressBar->setValue(pct);
+            }
+        }
+    }
 
     m_consoleOutput->moveCursor(QTextCursor::End);
     m_consoleOutput->insertPlainText(text);

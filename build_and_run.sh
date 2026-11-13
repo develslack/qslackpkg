@@ -1,6 +1,6 @@
 #!/bin/bash
 # ==============================================================================
-# Script de compilación y ejecución para QSlackpkg en Slackware Linux
+# Script de compilación, ejecución e instalación para QSlackpkg en Slackware Linux
 # ==============================================================================
 
 set -e
@@ -9,6 +9,7 @@ PROJECT_FILE="qslackpkg.pro"
 BINARY_NAME="qslackpkg"
 BUILD_ONLY=false
 CLEAN_BUILD=false
+INSTALL_SYSTEM=false
 
 # Colores para salida en terminal
 GREEN='\033[0;32m'
@@ -22,11 +23,12 @@ show_help() {
     echo "Opciones:"
     echo "  -b, --build-only    Compila el proyecto sin ejecutar el binario al finalizar."
     echo "  -c, --clean         Limpia compilaciones previas (make distclean) antes de compilar."
+    echo "  -i, --install       Compila e instala la aplicación globalmente en /opt/qslackpkg/ y crea la entrada en el menú Sistema."
     echo "  -h, --help          Muestra esta ayuda."
     echo ""
     echo "Ejemplo:"
     echo "  $0                  # Compila y lanza ./qslackpkg"
-    echo "  $0 --clean          # Recompila desde cero y lanza ./qslackpkg"
+    echo "  $0 --clean --install # Limpia, recompila e instala en el sistema"
 }
 
 # Parseo de argumentos
@@ -38,6 +40,11 @@ while [[ $# -gt 0 ]]; do
             ;;
         -c|--clean)
             CLEAN_BUILD=true
+            shift
+            ;;
+        -i|--install)
+            INSTALL_SYSTEM=true
+            BUILD_ONLY=true
             shift
             ;;
         -h|--help)
@@ -91,7 +98,46 @@ make -j"$JOBS"
 
 echo -e "${GREEN}>>> Compilación exitosa: ./$BINARY_NAME${NC}"
 
-# Ejecutar si no se indicó --build-only
+# Instalación global si se indicó --install
+if [[ "$INSTALL_SYSTEM" == true ]]; then
+    echo -e "${GREEN}>>> Instalando QSlackpkg en el sistema (solicitando permisos de superusuario)...${NC}"
+
+    # Capturamos las rutas absolutas actuales antes de escalar privilegios con pkexec
+    SRC_BIN="$(pwd)/$BINARY_NAME"
+    SRC_IMG="$(pwd)/img/Linux-Slackware-Logo-Vector.png"
+
+    if [[ ! -f "$SRC_BIN" ]]; then
+        echo -e "${RED}Error: No se encuentra el binario compilado en '$SRC_BIN'.${NC}"
+        exit 1
+    fi
+
+    pkexec /bin/sh -c "
+        mkdir -p /opt/qslackpkg/img
+        cp -f '$SRC_BIN' /opt/qslackpkg/
+        if [ -f '$SRC_IMG' ]; then
+            cp -f '$SRC_IMG' /opt/qslackpkg/img/
+        else
+            echo 'Aviso: No se encontró el logo PNG en $SRC_IMG'
+        fi
+
+        cat << 'EOF' > /usr/share/applications/qslackpkg.desktop
+[Desktop Entry]
+Type=Application
+Name=QSlackpkg
+Comment=Package manager for Slackware Linux
+Exec=/opt/qslackpkg/qslackpkg
+Icon=/opt/qslackpkg/img/Linux-Slackware-Logo-Vector.png
+Categories=System;
+Terminal=false
+EOF
+        chmod 644 /usr/share/applications/qslackpkg.desktop
+        update-desktop-database 2>/dev/null || true
+    "
+    echo -e "${GREEN}>>> ¡Instalación completada con éxito! QSlackpkg ya se encuentra en el menú Aplicaciones -> Sistema.${NC}"
+    exit 0
+fi
+
+# Ejecutar si no se indicó --build-only ni --install
 if [[ "$BUILD_ONLY" == false ]]; then
     echo -e "${GREEN}>>> Iniciando $BINARY_NAME...${NC}"
     ./"$BINARY_NAME"

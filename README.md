@@ -12,9 +12,10 @@ Está pensada tanto para veteranos de Slackware que desean un monitor silencioso
 * **Sincronización exacta:** Consulta directamente el motor de `slackpkg` para garantizar 100% de coincidencia entre la interfaz gráfica y la terminal.
 * **Vista estructurada en 6 columnas:** Diferencia claramente el nombre del paquete, el paquete base de la rama principal (`slackware64`), los paquetes compilados desde SlackBuilds (`_SBo`), la versión instalada actualmente (resaltada en verde cuando está al día) y las actualizaciones disponibles.
 * **Desinstalación directa:** Incluye un botón `Remove` por cada paquete instalado (`slackpkg remove <paquete>`) con confirmación de seguridad.
-* **Monitor en segundo plano (Tray Icon):** Al cerrar la ventana, la aplicación permanece minimizada en la bandeja del sistema verificando periódicamente el `ChangeLog.txt` del mirror configurado y notificando mediante popups cuando existen nuevas actualizaciones.
+* **Monitor en segundo plano (Tray Icon):** Al cerrar la ventana, la aplicación permanece minimizada en la bandeja del sistema verificando periódicamente el `ChangeLog.txt` del mirror configurado y notificando mediante popups cuando existen nuevas actualizaciones (con conteo visual en tiempo real).
 
 ### 2. Tienda y Gestión de SlackBuilds.org (`sbopkg`)
+* **Verificación e instalación automática de `sbopkg`:** Detecta si `sbopkg` está ausente y ofrece un asistente directo en pantalla para descargarlo desde GitHub e instalarlo con un solo clic.
 * **Catálogo categorizado y buscador en tiempo real:** Lee el índice `SLACKBUILDS.TXT` local para filtrar miles de recetas por categoría (`audio`, `office`, `multimedia`, `development`, `network`, etc.), por nombre o por descripción.
 * **Detección de actualizaciones SBo:** Compara la versión instalada localmente con la disponible en el árbol de SlackBuilds y permite filtrar únicamente los paquetes desactualizados.
 * **Resolución automática de dependencias transitivas:** Analiza recursivamente las claves `REQUIRES` de cada archivo `.info`, realiza un ordenamiento topológico de las dependencias faltantes, genera automáticamente el archivo de cola (`.sqf`) y ejecuta `sbopkg -B -i` en el orden exacto de compilación.
@@ -41,13 +42,12 @@ Está pensada tanto para veteranos de Slackware que desean un monitor silencioso
 
 1. **Slackware 15.0** (o `-current`) con los paquetes de desarrollo base (`d/`), `qt5` (`l/qt5`) y `polkit` instalados.
 2. Un mirror descomentado en `/etc/slackpkg/mirrors`.
-3. *(Opcional)* Tener instalado **`sbopkg`** (`/usr/sbin/sbopkg`) para habilitar la pestaña de SlackBuilds.org.
 
 ---
 
-## Compilación y Ejecución
+## Compilación, Instalación y Ejecución
 
-Puedes compilar el proyecto desde **Qt Creator** abriendo directamente el archivo `qslackpkg.pro`, o utilizar el script automatizado incluido para compilar y ejecutar desde la terminal.
+Puedes compilar el proyecto desde **Qt Creator** abriendo directamente el archivo `qslackpkg.pro`, o utilizar el script automatizado `build_and_run.sh` para compilar, probar o instalar globalmente desde la terminal.
 
 ### Uso del script `build_and_run.sh`
 
@@ -58,7 +58,7 @@ Puedes compilar el proyecto desde **Qt Creator** abriendo directamente el archiv
 
 2. Ejecuta el script según lo que necesites:
 
-   * **Compilar y ejecutar la aplicación directamente:**
+   * **Compilar y ejecutar la aplicación directamente en local:**
      ```bash
      ./build_and_run.sh
      ```
@@ -66,9 +66,13 @@ Puedes compilar el proyecto desde **Qt Creator** abriendo directamente el archiv
      ```bash
      ./build_and_run.sh --build-only
      ```
-   * **Limpiar binarios/archivos temporales anteriores y recompilar desde cero:**
+   * **Limpiar binarios anteriores y recompilar desde cero:**
      ```bash
      ./build_and_run.sh --clean
+     ```
+   * **Instalar globalmente en el sistema** (copia el binario y el logotipo a `/opt/qslackpkg/` y crea la entrada en el menú **Aplicaciones -> Sistema**):
+     ```bash
+     ./build_and_run.sh --install
      ```
    * **Ver todas las opciones disponibles:**
      ```bash
@@ -81,12 +85,15 @@ Puedes compilar el proyecto desde **Qt Creator** abriendo directamente el archiv
 
 ```text
 qslackpkg/
-├── qslackpkg.pro       # Archivo de configuración del proyecto para qmake / Qt Creator
-├── main.cpp            # Punto de entrada de la aplicación Qt
-├── mainwindow.h        # Declaración de la ventana principal, estructuras y slots
-├── mainwindow.cpp      # Lógica de UI, slackpkg, sbopkg, proxy y resolutor de dependencias
-├── build_and_run.sh    # Script automatizado de compilación y ejecución
-└── README.md           # Documentación del proyecto
+├── qslackpkg.pro           # Archivo de configuración para qmake / Qt Creator
+├── main.cpp                # Punto de entrada de la aplicación Qt
+├── mainwindow.h            # Declaración de la ventana principal y estructuras
+├── mainwindow.cpp          # Lógica de UI, slackpkg, sbopkg y resolución de dependencias
+├── resources.qrc           # Sistema de recursos Qt (empaqueta el logotipo)
+├── img/
+│   └── Linux-Slackware-Logo-Vector.png # Logotipo oficial de Slackware
+├── build_and_run.sh        # Script automatizado de compilación e instalación
+└── README.md               # Documentación del proyecto
 ```
 
 ---
@@ -99,9 +106,9 @@ Si deseas que **QSlackpkg** inicie automáticamente en segundo plano al entrar a
 [Desktop Entry]
 Type=Application
 Name=QSlackpkg
-Comment=Monitor de actualizaciones y gestor de paquetes para Slackware
-Exec=/ruta/completa/a/qslackpkg
-Icon=system-software-update
+Comment=Package manager for Slackware Linux
+Exec=/opt/qslackpkg/qslackpkg
+Icon=/opt/qslackpkg/img/Linux-Slackware-Logo-Vector.png
 Terminal=false
-Categories=System;PackageManager;
+Categories=System;
 ```

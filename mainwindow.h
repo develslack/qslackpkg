@@ -48,20 +48,17 @@ protected:
     void closeEvent(QCloseEvent *event) override;
 
 private slots:
-    // Slackpkg slots
     void runUpdate();
     void runUpgradeAll();
     void runCleanSystem();
     void runRemovePackage(const QString &shortName, const QString &fullName);
     void showPendingUpdatesDialog();
 
-    // Sbopkg slots
-    void runInstallSbopkg(); // <-- Nuevo slot para descargar e instalar sbopkg
+    void runInstallSbopkg();
     void runSboSync();
     void filterSboTable();
     void onInstallSboClicked(const SboPackageInfo &pkg);
 
-    // Proceso y sistema
     void readProcessOutput();
     void processFinished(int exitCode, QProcess::ExitStatus exitStatus);
     void toggleConsole();
@@ -70,14 +67,16 @@ private slots:
     void onTrayIconActivated(QSystemTrayIcon::ActivationReason reason);
 
 private:
+    enum TrayState { StateUpToDate, StateUpdatesAvailable, StateWorking };
+
     void setupTrayIcon();
+    void updateTrayIconState(TrayState state, int count = 0);
     QWidget* createOfficialTab();
     QWidget* createSboTab();
 
     void executePrivilegedCommand(const QString &binaryPath, const QStringList &args, const QString &statusMsg);
     void setUiEnabled(bool enabled);
 
-    // Motores de escaneo
     void scanPendingUpgrades();
     QStringList queryRealSlackpkgUpgrades();
     void scanSboRepository();
@@ -97,7 +96,6 @@ private:
     QTimer *m_checkTimer;
     QTabWidget *m_tabs;
 
-    // UI Pestaña Oficial (slackpkg)
     QLabel *m_statusBanner;
     QPushButton *m_btnPendingDetails;
     QTableWidget *m_packageTable;
@@ -105,25 +103,21 @@ private:
     QPushButton *m_btnUpgrade;
     QPushButton *m_btnClean;
 
-    // UI Pestaña SlackBuilds (sbopkg)
     QLabel *m_sboStatusLabel;
-    QPushButton *m_btnInstallSbopkg; // <-- Botón condicional de instalación de sbopkg
+    QPushButton *m_btnInstallSbopkg;
     QPushButton *m_btnSboSync;
     QComboBox *m_comboSboCategory;
     QLineEdit *m_editSboSearch;
     QCheckBox *m_chkSboUpdatesOnly;
     QTableWidget *m_sboTable;
 
-    // Consola compartida y progreso
     QTextEdit *m_consoleOutput;
     QPushButton *m_btnToggleConsole;
     QProgressBar *m_progressBar;
 
-    // Datos en memoria
     QList<PendingUpdateItem> m_confirmedUpdates;
     QMap<QString, SboPackageInfo> m_sboCatalog;
 
-    // Tray Icon
     QSystemTrayIcon *m_trayIcon;
     QMenu *m_trayMenu;
     bool m_forceQuit = false;
