@@ -18,8 +18,15 @@
 #include <QComboBox>
 #include <QLineEdit>
 #include <QCheckBox>
+#include <QGroupBox>
 #include <QMap>
 #include <QSet>
+
+enum TrayState {
+    StateUpToDate,
+    StateUpdatesAvailable,
+    StateWorking
+};
 
 struct PendingUpdateItem {
     QString shortName;
@@ -37,6 +44,30 @@ struct SboPackageInfo {
     bool hasUpdate = false;
 };
 
+struct KernelEnvironmentInfo {
+    QString runningKernel;
+    QStringList installedKernelVersions;
+    QString latestInstalledKernel;
+    bool newKernelPendingConfig = false;
+
+    bool hasKernelSources = false;
+    QString kernelSourceVersion;
+
+    QString firmwareMode;       // "UEFI / EFI" o "Legacy BIOS / MBR"
+    QString efiMountPoint;      // Ej. "/boot/efi"
+    QString efiSlackwareDir;    // Ej. "/boot/efi/EFI/Slackware"
+
+    QString bootloaderType;     // "ELILO", "LILO", "GRUB", "No detectado"
+    QString bootloaderConfigPath;
+
+    bool hasDualBoot = false;
+    QStringList detectedOtherOS;
+
+    QString rootDevice;         // Ej. "/dev/nvme0n1p2" o "/dev/sda2"
+    QString rootFsType;         // Ej. "ext4", "reiserfs", "xfs", "btrfs"
+    QString recommendedModules;
+};
+
 class MainWindow : public QMainWindow {
     Q_OBJECT
 
@@ -48,17 +79,28 @@ protected:
     void closeEvent(QCloseEvent *event) override;
 
 private slots:
+    // Slackpkg slots
     void runUpdate();
     void runUpgradeAll();
     void runCleanSystem();
     void runRemovePackage(const QString &shortName, const QString &fullName);
     void showPendingUpdatesDialog();
 
+    // Sbopkg slots
     void runInstallSbopkg();
     void runSboSync();
     void filterSboTable();
     void onInstallSboClicked(const SboPackageInfo &pkg);
 
+    // Kernel & Bootloader slots
+    void scanKernelEnvironment();
+    void onKernelSelectionChanged();
+    void updateBootloaderPreview();
+    void runGenerateInitrdOnly();
+    void runUpdateBootloaderOnly();
+    void runFullKernelWorkflow();
+
+    // Proceso y sistema
     void readProcessOutput();
     void processFinished(int exitCode, QProcess::ExitStatus exitStatus);
     void toggleConsole();
@@ -67,16 +109,16 @@ private slots:
     void onTrayIconActivated(QSystemTrayIcon::ActivationReason reason);
 
 private:
-    enum TrayState { StateUpToDate, StateUpdatesAvailable, StateWorking };
-
     void setupTrayIcon();
-    void updateTrayIconState(TrayState state, int count = 0);
+    void updateTrayIconState(TrayState state, int count);
     QWidget* createOfficialTab();
     QWidget* createSboTab();
+    QWidget* createKernelTab();
 
     void executePrivilegedCommand(const QString &binaryPath, const QStringList &args, const QString &statusMsg);
     void setUiEnabled(bool enabled);
 
+    // Motores de escaneo
     void scanPendingUpgrades();
     QStringList queryRealSlackpkgUpgrades();
     void scanSboRepository();
@@ -87,6 +129,14 @@ private:
                               QSet<QString> &visited,
                               QStringList &orderedBuildList);
 
+    // Helpers de Kernel y Bootloader
+    QString detectRecommendedInitrdModules(const QString &kernelVer);
+    QString buildBootloaderPreviewText() const;
+    QString buildKernelExecutionScript(bool buildBzImage, bool buildInitrd, bool updateBootloader) const;
+    bool confirmRootKernelAction(const QString &actionTitle,
+                                 const QStringList &configSummaryLines,
+                                 const QString &commandPreview);
+
     QString getMirrorUrl();
     QString stripAnsiCodes(const QString &text);
     QMap<QString, QString> loadProxyEnvironment();
@@ -96,6 +146,7 @@ private:
     QTimer *m_checkTimer;
     QTabWidget *m_tabs;
 
+    // UI Pestaña Oficial (slackpkg)
     QLabel *m_statusBanner;
     QPushButton *m_btnPendingDetails;
     QTableWidget *m_packageTable;
@@ -103,6 +154,7 @@ private:
     QPushButton *m_btnUpgrade;
     QPushButton *m_btnClean;
 
+    // UI Pestaña SlackBuilds (sbopkg)
     QLabel *m_sboStatusLabel;
     QPushButton *m_btnInstallSbopkg;
     QPushButton *m_btnSboSync;
@@ -111,13 +163,47 @@ private:
     QCheckBox *m_chkSboUpdatesOnly;
     QTableWidget *m_sboTable;
 
+    // UI Pestaña Kernel y Arranque
+    QWidget *m_kernelAlertCard;
+    QLabel *m_lblKernelAlertText;
+    QPushButton *m_btnKernelAlertSelect;
+
+    QLabel *m_lblDiagRunningKernel;
+    QLabel *m_lblDiagInstalledKernels;
+    QLabel *m_lblDiagKernelSources;
+    QLabel *m_lblDiagFirmwareMode;
+    QLabel *m_lblDiagBootloader;
+    QLabel *m_lblDiagDualBoot;
+    QPushButton *m_btnRescanKernel;
+
+    QComboBox *m_comboTargetKernel;
+    QComboBox *m_comboKernelVariant;
+
+    QCheckBox *m_chkGenerateInitrd;
+    QLineEdit *m_editRootDevice;
+    QLineEdit *m_editRootFs;
+    QLineEdit *m_editInitrdModules;
+    QCheckBox *m_chkIncludeUdev;
+
+    QCheckBox *m_chkUpdateBootloader;
+    QCheckBox *m_chkKeepFallbackEntry;
+    QTextEdit *m_bootloaderPreview;
+
+    QPushButton *m_btnRunInitrdOnly;
+    QPushButton *m_btnRunBootloaderOnly;
+    QPushButton *m_btnRunFullKernelFlow;
+
+    // Consola compartida y progreso
     QTextEdit *m_consoleOutput;
     QPushButton *m_btnToggleConsole;
     QProgressBar *m_progressBar;
 
+    // Datos en memoria
     QList<PendingUpdateItem> m_confirmedUpdates;
     QMap<QString, SboPackageInfo> m_sboCatalog;
+    KernelEnvironmentInfo m_kernelInfo;
 
+    // Tray Icon
     QSystemTrayIcon *m_trayIcon;
     QMenu *m_trayMenu;
     bool m_forceQuit = false;

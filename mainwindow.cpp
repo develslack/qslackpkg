@@ -1,12 +1,16 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QGridLayout>
+#include <QFormLayout>
 #include <QHeaderView>
 #include <QWidget>
+#include <QScrollArea>
 #include <QScrollBar>
 #include <QMessageBox>
 #include <QDialog>
 #include <QListWidget>
 #include <QFile>
+#include <QFileInfo>
 #include <QDir>
 #include <QDirIterator>
 #include <QTextStream>
@@ -19,11 +23,13 @@
 #include <QPixmap>
 #include <QIcon>
 #include <QPainter>
+#include <QSysInfo>
+#include <unistd.h>
 #include "mainwindow.h"
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
-    setWindowTitle("QSlackpkg - Package Manager for Slackware Linux");
-    resize(1300, 740);
+    setWindowTitle("QSlackpkg - Package & Kernel Manager for Slackware Linux");
+    resize(1320, 780);
 
     QPixmap logoPixmap(":/img/Linux-Slackware-Logo-Vector.png");
     if (logoPixmap.isNull()) {
@@ -37,7 +43,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
     mainLayout->setSpacing(10);
 
-    // Cabecera Visual
+    // ========================================================================
+    // 0. CABECERA VISUAL
+    // ========================================================================
     QWidget *brandHeader = new QWidget(this);
     QVBoxLayout *brandLayout = new QVBoxLayout(brandHeader);
     brandLayout->setContentsMargins(0, 4, 0, 4);
@@ -47,13 +55,13 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     QLabel *lblLogo = new QLabel(this);
     lblLogo->setAlignment(Qt::AlignCenter);
     if (!logoPixmap.isNull()) {
-        lblLogo->setPixmap(logoPixmap.scaledToHeight(68, Qt::SmoothTransformation));
+        lblLogo->setPixmap(logoPixmap.scaledToHeight(64, Qt::SmoothTransformation));
     } else {
         lblLogo->setText("SLACKWARE LINUX");
         lblLogo->setStyleSheet("font-size: 18pt; font-weight: bold; color: #1a237e;");
     }
 
-    QLabel *lblSubtitle = new QLabel("Package Manager for Slackware Linux", this);
+    QLabel *lblSubtitle = new QLabel("Package & Kernel Manager for Slackware Linux", this);
     lblSubtitle->setAlignment(Qt::AlignCenter);
     lblSubtitle->setStyleSheet(
         "font-size: 11.5pt; font-weight: bold; color: #37474f; "
@@ -64,7 +72,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     brandLayout->addWidget(lblSubtitle);
     mainLayout->addWidget(brandHeader);
 
-    // Banner de estado
+    // ========================================================================
+    // 1. BANNER SUPERIOR DE ESTADO
+    // ========================================================================
     QWidget *bannerContainer = new QWidget(this);
     bannerContainer->setObjectName("bannerContainer");
     QHBoxLayout *bannerLayout = new QHBoxLayout(bannerContainer);
@@ -90,13 +100,18 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     bannerContainer->setStyleSheet("#bannerContainer { background-color: #2e7d32; border-radius: 6px; }");
     mainLayout->addWidget(bannerContainer);
 
-    // Pestañas
+    // ========================================================================
+    // 2. PESTAÑAS PRINCIPALES (Oficial | SlackBuilds | Kernel y Arranque)
+    // ========================================================================
     m_tabs = new QTabWidget(this);
     m_tabs->addTab(createOfficialTab(), "Sistema Oficial (slackpkg)");
     m_tabs->addTab(createSboTab(), "Repositorio SlackBuilds.org (sbopkg)");
+    m_tabs->addTab(createKernelTab(), "Kernel y Arranque (initrd / Bootloader)");
     mainLayout->addWidget(m_tabs);
 
-    // Barra inferior
+    // ========================================================================
+    // 3. CONSOLA COMPARTIDA Y BARRA DE PROGRESO
+    // ========================================================================
     QHBoxLayout *footerLayout = new QHBoxLayout();
     m_btnToggleConsole = new QPushButton("Mostrar detalles de terminal", this);
     m_btnToggleConsole->setCheckable(true);
@@ -111,7 +126,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_consoleOutput->setStyleSheet("background-color: #1e1e1e; color: #d4d4d4; font-family: monospace; font-size: 9pt;");
     mainLayout->addWidget(m_consoleOutput);
 
-    // Barra de progreso determinada con texto de porcentaje
     m_progressBar = new QProgressBar(this);
     m_progressBar->setRange(0, 100);
     m_progressBar->setValue(0);
@@ -152,10 +166,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     connect(m_checkTimer, &QTimer::timeout, this, &MainWindow::checkUpdatesInBackground);
     m_checkTimer->start(3600000);
 
+    // Escaneo inicial de todo el sistema
+    scanKernelEnvironment();
     scanPendingUpgrades();
     scanSboRepository();
     QTimer::singleShot(3000, this, &MainWindow::checkUpdatesInBackground);
 }
+
+// ============================================================================
+// PESTAÑA 1: SISTEMA OFICIAL (SLACKPKG)
+// ============================================================================
 
 QWidget* MainWindow::createOfficialTab() {
     QWidget *tab = new QWidget(this);
@@ -195,6 +215,10 @@ QWidget* MainWindow::createOfficialTab() {
 
     return tab;
 }
+
+// ============================================================================
+// PESTAÑA 2: REPOSITORIO SLACKBUILDS.ORG (SBOPKG)
+// ============================================================================
 
 QWidget* MainWindow::createSboTab() {
     QWidget *tab = new QWidget(this);
@@ -271,17 +295,967 @@ QWidget* MainWindow::createSboTab() {
     return tab;
 }
 
-MainWindow::~MainWindow() {
-    if (m_process->state() != QProcess::NotRunning) {
-        m_process->terminate();
-        m_process->waitForFinished(3000);
-    }
+// ============================================================================
+// PESTAÑA 3: KERNEL Y ARRANQUE (DIAGNÓSTICO, INITRD, BZIMAGE Y BOOTLOADER)
+// ============================================================================
+
+QWidget* MainWindow::createKernelTab() {
+    QScrollArea *scrollArea = new QScrollArea(this);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+
+    QWidget *container = new QWidget(scrollArea);
+    QVBoxLayout *layout = new QVBoxLayout(container);
+    layout->setSpacing(12);
+
+    // ------------------------------------------------------------------------
+    // AVISO GENERAL OBLIGATORIO DE PRIVILEGIOS ROOT Y LECTURA ATENTA
+    // ------------------------------------------------------------------------
+    QString currentSessionNote = (geteuid() == 0)
+        ? "Sesión actual detectada: <b>usuario root (UID 0)</b>."
+        : "Sesión actual detectada: <b>usuario estándar</b> (se solicitará autenticación <b>root</b> mediante <code>pkexec</code>).";
+
+    QLabel *lblGlobalRootWarning = new QLabel(
+        QString("<b>AVISO DE SEGURIDAD Y PRIVILEGIOS (ROOT):</b> Todas las operaciones de este apartado "
+                "(compilación de <code>bzImage</code>, generación de <code>initrd</code> y actualización de "
+                "<code>ELILO / LILO / GRUB</code>) modifican archivos críticos de arranque del sistema y "
+                "<b>deben ser realizadas por el usuario root</b>. %1<br>"
+                "<i>Antes de pulsar Aceptar en cualquier paso, lea atentamente todas las configuraciones seleccionadas.</i>")
+            .arg(currentSessionNote),
+        container
+    );
+    lblGlobalRootWarning->setWordWrap(true);
+    lblGlobalRootWarning->setStyleSheet(
+        "background-color: #fff8e1; color: #5d4037; border: 1px solid #ffb300; "
+        "border-left: 5px solid #ff8f00; border-radius: 4px; padding: 10px; font-size: 9.5pt;"
+    );
+    layout->addWidget(lblGlobalRootWarning);
+
+    // ------------------------------------------------------------------------
+    // ALERTA POST-ACTUALIZACIÓN DE KERNEL (VISIBLE SI HAY KERNEL NUEVO SIN CONFIG)
+    // ------------------------------------------------------------------------
+    m_kernelAlertCard = new QWidget(container);
+    m_kernelAlertCard->setObjectName("kernelAlertCard");
+    m_kernelAlertCard->setStyleSheet(
+        "#kernelAlertCard { background-color: #fbe9e7; border: 1px solid #ff7043; "
+        "border-left: 5px solid #d84315; border-radius: 4px; }"
+    );
+    QHBoxLayout *alertLayout = new QHBoxLayout(m_kernelAlertCard);
+    alertLayout->setContentsMargins(12, 8, 12, 8);
+
+    m_lblKernelAlertText = new QLabel(
+        "¡Nuevo kernel detectado! Debe generar el initrd y actualizar el bootloader antes de reiniciar.",
+        m_kernelAlertCard
+    );
+    m_lblKernelAlertText->setWordWrap(true);
+    m_lblKernelAlertText->setStyleSheet("color: #bf360c; font-weight: bold; background: transparent;");
+
+    m_btnKernelAlertSelect = new QPushButton("Seleccionar nuevo kernel", m_kernelAlertCard);
+    m_btnKernelAlertSelect->setCursor(Qt::PointingHandCursor);
+    m_btnKernelAlertSelect->setStyleSheet(
+        "QPushButton { background-color: #d84315; color: white; font-weight: bold; "
+        "padding: 6px 12px; border-radius: 4px; }"
+        "QPushButton:hover { background-color: #bf360c; }"
+    );
+
+    alertLayout->addWidget(m_lblKernelAlertText, 1);
+    alertLayout->addWidget(m_btnKernelAlertSelect);
+    m_kernelAlertCard->setVisible(false);
+    layout->addWidget(m_kernelAlertCard);
+
+    // ------------------------------------------------------------------------
+    // BLOQUE 1: DIAGNÓSTICO AUTOMÁTICO DEL SISTEMA
+    // ------------------------------------------------------------------------
+    QGroupBox *grpDiag = new QGroupBox("1. Diagnóstico del Kernel, Firmware y Gestor de Arranque", container);
+    QGridLayout *diagGrid = new QGridLayout(grpDiag);
+    diagGrid->setHorizontalSpacing(18);
+    diagGrid->setVerticalSpacing(6);
+
+    m_lblDiagRunningKernel = new QLabel("Detectando...", grpDiag);
+    m_lblDiagInstalledKernels = new QLabel("Detectando...", grpDiag);
+    m_lblDiagKernelSources = new QLabel("Detectando...", grpDiag);
+    m_lblDiagFirmwareMode = new QLabel("Detectando...", grpDiag);
+    m_lblDiagBootloader = new QLabel("Detectando...", grpDiag);
+    m_lblDiagDualBoot = new QLabel("Detectando...", grpDiag);
+
+    m_lblDiagRunningKernel->setStyleSheet("font-weight: bold; color: #1b5e20;");
+    m_lblDiagInstalledKernels->setWordWrap(true);
+    m_lblDiagKernelSources->setWordWrap(true);
+    m_lblDiagFirmwareMode->setWordWrap(true);
+    m_lblDiagBootloader->setWordWrap(true);
+    m_lblDiagDualBoot->setWordWrap(true);
+
+    diagGrid->addWidget(new QLabel("<b>Kernel en ejecución (uname -r):</b>", grpDiag), 0, 0);
+    diagGrid->addWidget(m_lblDiagRunningKernel, 0, 1);
+
+    diagGrid->addWidget(new QLabel("<b>Kernels instalados (/boot):</b>", grpDiag), 1, 0);
+    diagGrid->addWidget(m_lblDiagInstalledKernels, 1, 1);
+
+    diagGrid->addWidget(new QLabel("<b>Fuentes del Kernel (/usr/src/linux):</b>", grpDiag), 2, 0);
+    diagGrid->addWidget(m_lblDiagKernelSources, 2, 1);
+
+    diagGrid->addWidget(new QLabel("<b>Firmware y Particionado:</b>", grpDiag), 0, 2);
+    diagGrid->addWidget(m_lblDiagFirmwareMode, 0, 3);
+
+    diagGrid->addWidget(new QLabel("<b>Bootloader activo:</b>", grpDiag), 1, 2);
+    diagGrid->addWidget(m_lblDiagBootloader, 1, 3);
+
+    diagGrid->addWidget(new QLabel("<b>Otros Sistemas (Dual-Boot):</b>", grpDiag), 2, 2);
+    diagGrid->addWidget(m_lblDiagDualBoot, 2, 3);
+
+    diagGrid->setColumnStretch(1, 1);
+    diagGrid->setColumnStretch(3, 1);
+
+    m_btnRescanKernel = new QPushButton("Re-escanear entorno", grpDiag);
+    m_btnRescanKernel->setCursor(Qt::PointingHandCursor);
+    diagGrid->addWidget(m_btnRescanKernel, 3, 3, Qt::AlignRight);
+
+    layout->addWidget(grpDiag);
+
+    // ------------------------------------------------------------------------
+    // BLOQUE 2: SELECCIÓN DE VERSIÓN E IMAGEN DE KERNEL (VMLINUZ / BZIMAGE)
+    // ------------------------------------------------------------------------
+    QGroupBox *grpKernelImg = new QGroupBox("2. Versión Objetivo e Imagen del Kernel (vmlinuz / bzImage)", container);
+    QVBoxLayout *imgBoxLayout = new QVBoxLayout(grpKernelImg);
+
+    QLabel *lblStep2RootNote = new QLabel(
+        "<i>Aviso de permisos: La instalación o compilación de imágenes de kernel (<code>bzImage</code>) y módulos en "
+        "<code>/boot</code> y <code>/lib/modules</code> requiere ejecutarse como <b>root</b>. Verifique la versión antes de continuar.</i>",
+        grpKernelImg
+    );
+    lblStep2RootNote->setWordWrap(true);
+    lblStep2RootNote->setStyleSheet("color: #6d4c41; font-size: 8.8pt;");
+    imgBoxLayout->addWidget(lblStep2RootNote);
+
+    QFormLayout *imgForm = new QFormLayout();
+    m_comboTargetKernel = new QComboBox(grpKernelImg);
+    m_comboKernelVariant = new QComboBox(grpKernelImg);
+
+    imgForm->addRow("<b>Versión de Kernel a configurar:</b>", m_comboTargetKernel);
+    imgForm->addRow("<b>Imagen de Kernel a utilizar:</b>", m_comboKernelVariant);
+    imgBoxLayout->addLayout(imgForm);
+
+    layout->addWidget(grpKernelImg);
+
+    // ------------------------------------------------------------------------
+    // BLOQUE 3: GENERACIÓN ASISTIDA DE INITRD (SIN EDITAR SCRIPTS A MANO)
+    // ------------------------------------------------------------------------
+    QGroupBox *grpInitrd = new QGroupBox("3. Generación de Imagen Inicial RAM (initrd)", container);
+    QVBoxLayout *initrdBoxLayout = new QVBoxLayout(grpInitrd);
+
+    QLabel *lblStep3RootNote = new QLabel(
+        "<i>Aviso de permisos: La creación de <code>/boot/initrd-&lt;versión&gt;.gz</code> escribe directamente en <code>/boot</code> "
+        "como usuario <b>root</b>. Revise que la partición raíz y el sistema de archivos detectados sean correctos.</i>",
+        grpInitrd
+    );
+    lblStep3RootNote->setWordWrap(true);
+    lblStep3RootNote->setStyleSheet("color: #6d4c41; font-size: 8.8pt;");
+    initrdBoxLayout->addWidget(lblStep3RootNote);
+
+    m_chkGenerateInitrd = new QCheckBox("Generar archivo /boot/initrd-<versión>.gz automáticamente (Recomendado para kernel-generic)", grpInitrd);
+    m_chkGenerateInitrd->setChecked(true);
+    m_chkGenerateInitrd->setStyleSheet("font-weight: bold;");
+    initrdBoxLayout->addWidget(m_chkGenerateInitrd);
+
+    QGridLayout *initrdGrid = new QGridLayout();
+    m_editRootDevice = new QLineEdit(grpInitrd);
+    m_editRootDevice->setPlaceholderText("Ej: /dev/sda2 o /dev/nvme0n1p2");
+
+    m_editRootFs = new QLineEdit(grpInitrd);
+    m_editRootFs->setPlaceholderText("Ej: ext4, reiserfs, xfs, btrfs");
+
+    m_editInitrdModules = new QLineEdit(grpInitrd);
+    m_editInitrdModules->setPlaceholderText("Opcional (ej: ext4 o nvme:ext4; vacío = autodetección)");
+
+    m_chkIncludeUdev = new QCheckBox("Incluir soporte udev (-u) [Estándar Slackware]", grpInitrd);
+    m_chkIncludeUdev->setChecked(true);
+
+    initrdGrid->addWidget(new QLabel("Partición Raíz (-r):", grpInitrd), 0, 0);
+    initrdGrid->addWidget(m_editRootDevice, 0, 1);
+    initrdGrid->addWidget(new QLabel("Sistema de Archivos (-f):", grpInitrd), 0, 2);
+    initrdGrid->addWidget(m_editRootFs, 0, 3);
+    initrdGrid->addWidget(new QLabel("Módulos del Kernel (-m):", grpInitrd), 1, 0);
+    initrdGrid->addWidget(m_editInitrdModules, 1, 1);
+    initrdGrid->addWidget(m_chkIncludeUdev, 1, 2, 1, 2);
+
+    initrdBoxLayout->addLayout(initrdGrid);
+
+    QHBoxLayout *initrdActionRow = new QHBoxLayout();
+    m_btnRunInitrdOnly = new QPushButton("Ejecutar solo generación de initrd (como root)", grpInitrd);
+    m_btnRunInitrdOnly->setCursor(Qt::PointingHandCursor);
+    initrdActionRow->addStretch();
+    initrdActionRow->addWidget(m_btnRunInitrdOnly);
+    initrdBoxLayout->addLayout(initrdActionRow);
+
+    layout->addWidget(grpInitrd);
+
+    // ------------------------------------------------------------------------
+    // BLOQUE 4: CONFIGURACIÓN AUTOMÁTICA DEL BOOTLOADER (ELILO / LILO / GRUB)
+    // ------------------------------------------------------------------------
+    QGroupBox *grpBootloader = new QGroupBox("4. Actualización Visual del Gestor de Arranque (ELILO / LILO / GRUB)", container);
+    QVBoxLayout *bootBoxLayout = new QVBoxLayout(grpBootloader);
+
+    QLabel *lblStep4RootNote = new QLabel(
+        "<i>Aviso de permisos: Modificar <code>elilo.conf</code>, ejecutar <code>/sbin/lilo</code> o regenerar "
+        "<code>/boot/grub/grub.cfg</code> requiere privilegios de <b>root</b>. Se creará automáticamente un respaldo "
+        "<code>.bak</code> antes de aplicar cambios. Lea la vista previa antes de aceptar.</i>",
+        grpBootloader
+    );
+    lblStep4RootNote->setWordWrap(true);
+    lblStep4RootNote->setStyleSheet("color: #6d4c41; font-size: 8.8pt;");
+    bootBoxLayout->addWidget(lblStep4RootNote);
+
+    QHBoxLayout *bootOptsRow = new QHBoxLayout();
+    m_chkUpdateBootloader = new QCheckBox("Actualizar configuración del Bootloader detectado automáticamente", grpBootloader);
+    m_chkUpdateBootloader->setChecked(true);
+    m_chkUpdateBootloader->setStyleSheet("font-weight: bold;");
+
+    m_chkKeepFallbackEntry = new QCheckBox("Conservar entrada anterior como respaldo arrancable (Slackware-Prev)", grpBootloader);
+    m_chkKeepFallbackEntry->setChecked(true);
+
+    bootOptsRow->addWidget(m_chkUpdateBootloader);
+    bootOptsRow->addSpacing(16);
+    bootOptsRow->addWidget(m_chkKeepFallbackEntry);
+    bootOptsRow->addStretch();
+    bootBoxLayout->addLayout(bootOptsRow);
+
+    QLabel *lblPreviewTitle = new QLabel("Vista previa de la configuración / comandos que se aplicarán (solo lectura):", grpBootloader);
+    lblPreviewTitle->setStyleSheet("color: #37474f; font-size: 9pt;");
+    bootBoxLayout->addWidget(lblPreviewTitle);
+
+    m_bootloaderPreview = new QTextEdit(grpBootloader);
+    m_bootloaderPreview->setReadOnly(true);
+    m_bootloaderPreview->setMaximumHeight(115);
+    m_bootloaderPreview->setStyleSheet(
+        "background-color: #263238; color: #eceff1; font-family: monospace; font-size: 9pt; border-radius: 4px;"
+    );
+    bootBoxLayout->addWidget(m_bootloaderPreview);
+
+    QHBoxLayout *bootActionRow = new QHBoxLayout();
+    m_btnRunBootloaderOnly = new QPushButton("Ejecutar solo actualización de Bootloader (como root)", grpBootloader);
+    m_btnRunBootloaderOnly->setCursor(Qt::PointingHandCursor);
+
+    m_btnRunFullKernelFlow = new QPushButton("Aplicar Configuración Completa (Kernel / initrd + Bootloader) como root", grpBootloader);
+    m_btnRunFullKernelFlow->setCursor(Qt::PointingHandCursor);
+    m_btnRunFullKernelFlow->setStyleSheet(
+        "QPushButton { background-color: #2e7d32; color: white; font-weight: bold; "
+        "padding: 8px 18px; border-radius: 4px; font-size: 10pt; }"
+        "QPushButton:hover { background-color: #1b5e20; }"
+        "QPushButton:disabled { background-color: #a5d6a7; }"
+    );
+
+    bootActionRow->addWidget(m_btnRunBootloaderOnly);
+    bootActionRow->addStretch();
+    bootActionRow->addWidget(m_btnRunFullKernelFlow);
+    bootBoxLayout->addLayout(bootActionRow);
+
+    layout->addWidget(grpBootloader);
+    layout->addStretch();
+
+    scrollArea->setWidget(container);
+
+    // Conexiones de la pestaña Kernel
+    connect(m_btnRescanKernel, &QPushButton::clicked, this, &MainWindow::scanKernelEnvironment);
+    connect(m_btnKernelAlertSelect, &QPushButton::clicked, this, [this]() {
+        int idx = m_comboTargetKernel->findData(m_kernelInfo.latestInstalledKernel);
+        if (idx >= 0) m_comboTargetKernel->setCurrentIndex(idx);
+    });
+    connect(m_comboTargetKernel, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onKernelSelectionChanged);
+    connect(m_comboKernelVariant, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onKernelSelectionChanged);
+
+    connect(m_chkGenerateInitrd, &QCheckBox::toggled, this, &MainWindow::updateBootloaderPreview);
+    connect(m_editRootDevice, &QLineEdit::textChanged, this, &MainWindow::updateBootloaderPreview);
+    connect(m_editRootFs, &QLineEdit::textChanged, this, &MainWindow::updateBootloaderPreview);
+    connect(m_editInitrdModules, &QLineEdit::textChanged, this, &MainWindow::updateBootloaderPreview);
+    connect(m_chkIncludeUdev, &QCheckBox::toggled, this, &MainWindow::updateBootloaderPreview);
+    connect(m_chkUpdateBootloader, &QCheckBox::toggled, this, &MainWindow::updateBootloaderPreview);
+    connect(m_chkKeepFallbackEntry, &QCheckBox::toggled, this, &MainWindow::updateBootloaderPreview);
+
+    connect(m_btnRunInitrdOnly, &QPushButton::clicked, this, &MainWindow::runGenerateInitrdOnly);
+    connect(m_btnRunBootloaderOnly, &QPushButton::clicked, this, &MainWindow::runUpdateBootloaderOnly);
+    connect(m_btnRunFullKernelFlow, &QPushButton::clicked, this, &MainWindow::runFullKernelWorkflow);
+
+    return scrollArea;
 }
+
+// ============================================================================
+// MOTOR DE DIAGNÓSTICO DE KERNEL, FIRMWARE, DUAL-BOOT Y BOOTLOADER
+// ============================================================================
+
+QString MainWindow::detectRecommendedInitrdModules(const QString &kernelVer) {
+    if (kernelVer.isEmpty() || !QFile::exists("/usr/share/mkinitrd/mkinitrd_command_generator.sh")) {
+        return QString();
+    }
+
+    QProcess proc;
+    proc.start("/bin/sh", {"/usr/share/mkinitrd/mkinitrd_command_generator.sh", "-k", kernelVer});
+    if (proc.waitForFinished(4000)) {
+        QString out = QString::fromUtf8(proc.readAllStandardOutput());
+        QRegularExpression modRx("-m\\s+([^\\s\"']+)");
+        QRegularExpressionMatch match = modRx.match(out);
+        if (match.hasMatch()) {
+            return match.captured(1).trimmed();
+        }
+    }
+    return QString();
+}
+
+void MainWindow::scanKernelEnvironment() {
+    KernelEnvironmentInfo info;
+
+    // 1. Kernel actualmente corriendo
+    info.runningKernel = QSysInfo::kernelVersion().trimmed();
+    if (info.runningKernel.isEmpty()) {
+        QProcess unameProc;
+        unameProc.start("uname", {"-r"});
+        if (unameProc.waitForFinished(2000)) {
+            info.runningKernel = QString::fromUtf8(unameProc.readAllStandardOutput()).trimmed();
+        }
+    }
+
+    // 2. Kernels instalados en /boot y /var/log/packages
+    QSet<QString> versionsSet;
+    QDir bootDir("/boot");
+    QStringList vmlinuzFiles = bootDir.entryList({"vmlinuz-*"}, QDir::Files | QDir::NoSymLinks);
+    QRegularExpression verRx("(\\d+\\.\\d+\\.\\d+(?:-[a-zA-Z0-9._]+)?)");
+
+    for (const QString &file : vmlinuzFiles) {
+        QRegularExpressionMatch m = verRx.match(file);
+        if (m.hasMatch()) {
+            versionsSet.insert(m.captured(1));
+        }
+    }
+
+    QDir pkgDir("/var/log/packages");
+    for (const QString &pkg : pkgDir.entryList({"kernel-generic-*", "kernel-huge-*", "kernel-modules-*"}, QDir::Files)) {
+        QStringList parts = pkg.split('-');
+        if (parts.size() >= 4) {
+            versionsSet.insert(parts[parts.size() - 3]);
+        }
+    }
+
+    if (!info.runningKernel.isEmpty()) {
+        versionsSet.insert(info.runningKernel);
+    }
+
+    info.installedKernelVersions = versionsSet.values();
+    QCollator collator;
+    collator.setNumericMode(true);
+    std::sort(info.installedKernelVersions.begin(), info.installedKernelVersions.end(),
+              [&](const QString &a, const QString &b) { return collator.compare(a, b) < 0; });
+
+    info.latestInstalledKernel = info.installedKernelVersions.isEmpty()
+        ? info.runningKernel
+        : info.installedKernelVersions.last();
+
+    // 3. Fuentes del Kernel (/usr/src/linux)
+    QFile srcMakefile("/usr/src/linux/Makefile");
+    if (srcMakefile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        info.hasKernelSources = true;
+        QString ver, patch, sub, extra;
+        QTextStream in(&srcMakefile);
+        int linesRead = 0;
+        while (!in.atEnd() && linesRead < 15) {
+            QString line = in.readLine().trimmed();
+            linesRead++;
+            if (line.startsWith("VERSION =")) ver = line.mid(9).trimmed();
+            else if (line.startsWith("PATCHLEVEL =")) patch = line.mid(12).trimmed();
+            else if (line.startsWith("SUBLEVEL =")) sub = line.mid(10).trimmed();
+            else if (line.startsWith("EXTRAVERSION =")) extra = line.mid(14).trimmed();
+        }
+        srcMakefile.close();
+        if (!ver.isEmpty() && !patch.isEmpty()) {
+            info.kernelSourceVersion = QString("%1.%2.%3%4").arg(ver, patch, sub, extra);
+        }
+    }
+
+    // 4. Partición raíz (/) y sistema de archivos
+    QProcess findmntProc;
+    findmntProc.start("findmnt", {"-n", "-o", "SOURCE,FSTYPE", "/"});
+    if (findmntProc.waitForFinished(2500)) {
+        QStringList fields = QString::fromUtf8(findmntProc.readAllStandardOutput())
+                                 .trimmed()
+                                 .split(QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+        if (fields.size() >= 2) {
+            info.rootDevice = fields[0];
+            info.rootFsType = fields[1];
+        }
+    }
+    if (info.rootDevice.isEmpty()) info.rootDevice = "/dev/sda2";
+    if (info.rootFsType.isEmpty()) info.rootFsType = "ext4";
+
+    // 5. Firmware UEFI/EFI vs Legacy BIOS/MBR
+    if (QDir("/sys/firmware/efi").exists()) {
+        info.firmwareMode = "UEFI / EFI";
+        if (QDir("/boot/efi/EFI").exists()) {
+            info.efiMountPoint = "/boot/efi";
+        } else if (QDir("/efi/EFI").exists()) {
+            info.efiMountPoint = "/efi";
+        }
+        if (!info.efiMountPoint.isEmpty()) {
+            if (QDir(info.efiMountPoint + "/EFI/Slackware").exists()) {
+                info.efiSlackwareDir = info.efiMountPoint + "/EFI/Slackware";
+            } else if (QDir(info.efiMountPoint + "/EFI/slackware").exists()) {
+                info.efiSlackwareDir = info.efiMountPoint + "/EFI/slackware";
+            } else {
+                info.efiSlackwareDir = info.efiMountPoint + "/EFI/Slackware";
+            }
+        }
+    } else {
+        info.firmwareMode = "Legacy BIOS / MBR";
+    }
+
+    // 6. Detección de Bootloader instalado y activo (ELILO, LILO, GRUB)
+    if (!info.efiSlackwareDir.isEmpty() && QFile::exists(info.efiSlackwareDir + "/elilo.conf")) {
+        info.bootloaderType = "ELILO";
+        info.bootloaderConfigPath = info.efiSlackwareDir + "/elilo.conf";
+    } else if (QFile::exists("/boot/grub/grub.cfg") &&
+               (QFile::exists("/usr/sbin/grub-mkconfig") || QFile::exists("/sbin/grub-mkconfig"))) {
+        info.bootloaderType = "GRUB";
+        info.bootloaderConfigPath = "/boot/grub/grub.cfg";
+    } else if (QFile::exists("/etc/lilo.conf") && QFile::exists("/sbin/lilo")) {
+        info.bootloaderType = "LILO";
+        info.bootloaderConfigPath = "/etc/lilo.conf";
+    } else if (QFile::exists("/boot/grub/grub.cfg")) {
+        info.bootloaderType = "GRUB";
+        info.bootloaderConfigPath = "/boot/grub/grub.cfg";
+    } else if (QFile::exists("/etc/lilo.conf")) {
+        info.bootloaderType = "LILO";
+        info.bootloaderConfigPath = "/etc/lilo.conf";
+    } else {
+        info.bootloaderType = "No detectado";
+        info.bootloaderConfigPath = "—";
+    }
+
+    // 7. Detección de Dual-Boot / Otros Sistemas Operativos
+    QSet<QString> otherOsSet;
+    if (!info.efiMountPoint.isEmpty()) {
+        QDir efiRoot(info.efiMountPoint + "/EFI");
+        for (const QString &entry : efiRoot.entryList(QDir::Dirs | QDir::NoDotAndDotDot)) {
+            QString lower = entry.toLower();
+            if (lower == "slackware" || lower == "boot") continue;
+            if (lower == "microsoft") otherOsSet.insert("Windows Boot Manager (EFI)");
+            else otherOsSet.insert(entry + " (EFI)");
+        }
+    }
+    if (QFile::exists("/usr/bin/os-prober") || QFile::exists("/usr/sbin/os-prober")) {
+        QProcess osProber;
+        osProber.start("os-prober");
+        if (osProber.waitForFinished(3000)) {
+            QString out = QString::fromUtf8(osProber.readAllStandardOutput()).trimmed();
+            for (const QString &line : out.split('\n', Qt::SkipEmptyParts)) {
+                QStringList parts = line.split(':');
+                if (parts.size() >= 2) {
+                    otherOsSet.insert(QString("%1 (%2)").arg(parts[1], parts[0]));
+                }
+            }
+        }
+    }
+    info.detectedOtherOS = otherOsSet.values();
+    info.hasDualBoot = !info.detectedOtherOS.isEmpty();
+
+    // 8. Verificar si hay un nuevo kernel instalado pendiente de configuración
+    if (!info.latestInstalledKernel.isEmpty() && info.latestInstalledKernel != info.runningKernel) {
+        bool hasInitrd = QFile::exists(QString("/boot/initrd-%1.gz").arg(info.latestInstalledKernel));
+        bool bootloaderConfigured = false;
+        if (!info.bootloaderConfigPath.isEmpty() && info.bootloaderConfigPath != "—") {
+            QFile cfg(info.bootloaderConfigPath);
+            if (cfg.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                QString cfgContent = QString::fromUtf8(cfg.readAll());
+                bootloaderConfigured = cfgContent.contains(info.latestInstalledKernel);
+                cfg.close();
+            }
+        }
+        info.newKernelPendingConfig = (!hasInitrd || !bootloaderConfigured);
+    }
+
+    info.recommendedModules = detectRecommendedInitrdModules(info.latestInstalledKernel);
+    m_kernelInfo = info;
+
+    // 9. Reflejar diagnóstico en la interfaz
+    m_lblDiagRunningKernel->setText(info.runningKernel);
+    m_lblDiagInstalledKernels->setText(info.installedKernelVersions.join(", "));
+
+    if (info.hasKernelSources) {
+        m_lblDiagKernelSources->setStyleSheet("color: #1b5e20; font-weight: bold;");
+        m_lblDiagKernelSources->setText(QString("Disponibles (%1)").arg(info.kernelSourceVersion));
+    } else {
+        m_lblDiagKernelSources->setStyleSheet("color: #616161;");
+        m_lblDiagKernelSources->setText("No instalados (/usr/src/linux ausente)");
+    }
+
+    QString fwText = info.firmwareMode;
+    if (!info.efiMountPoint.isEmpty()) {
+        fwText += QString(" [ESP: %1]").arg(info.efiMountPoint);
+    }
+    fwText += QString(" | Raíz: %1 (%2)").arg(info.rootDevice, info.rootFsType);
+    m_lblDiagFirmwareMode->setText(fwText);
+
+    m_lblDiagBootloader->setStyleSheet(
+        info.bootloaderType == "No detectado" ? "color: #c62828; font-weight: bold;" : "color: #0d47a1; font-weight: bold;"
+    );
+    m_lblDiagBootloader->setText(QString("%1 (%2)").arg(info.bootloaderType, info.bootloaderConfigPath));
+
+    if (info.hasDualBoot) {
+        m_lblDiagDualBoot->setStyleSheet("color: #ef6c00; font-weight: bold;");
+        m_lblDiagDualBoot->setText("Sí: " + info.detectedOtherOS.join(", "));
+    } else {
+        m_lblDiagDualBoot->setStyleSheet("color: #424242;");
+        m_lblDiagDualBoot->setText("No detectado (Solo Slackware)");
+    }
+
+    // Poblar selector de versión de kernel
+    m_comboTargetKernel->blockSignals(true);
+    m_comboTargetKernel->clear();
+    for (int i = info.installedKernelVersions.size() - 1; i >= 0; --i) {
+        const QString &ver = info.installedKernelVersions[i];
+        QString label = ver;
+        if (ver == info.runningKernel) label += "  [En ejecución actual]";
+        if (ver != info.runningKernel && ver == info.latestInstalledKernel) label += "  [NUEVO - Pendiente de configurar]";
+        m_comboTargetKernel->addItem(label, ver);
+    }
+    if (info.hasKernelSources && !info.kernelSourceVersion.isEmpty() &&
+        !info.installedKernelVersions.contains(info.kernelSourceVersion)) {
+        m_comboTargetKernel->addItem(info.kernelSourceVersion + "  [Desde /usr/src/linux]", info.kernelSourceVersion);
+    }
+    m_comboTargetKernel->blockSignals(false);
+
+    // Autocompletar campos de initrd con valores detectados
+    m_editRootDevice->setText(info.rootDevice);
+    m_editRootFs->setText(info.rootFsType);
+    if (!info.recommendedModules.isEmpty()) {
+        m_editInitrdModules->setText(info.recommendedModules);
+    }
+
+    // Mostrar/ocultar tarjeta de alerta de nuevo kernel
+    if (info.newKernelPendingConfig) {
+        m_lblKernelAlertText->setText(
+            QString("¡Atención! Está ejecutando el kernel %1, pero se detectó la nueva versión instalada %2 "
+                    "pendiente de configurar (initrd / %3). Configúrelo antes de reiniciar.")
+                .arg(info.runningKernel, info.latestInstalledKernel, info.bootloaderType)
+        );
+        m_kernelAlertCard->setVisible(true);
+    } else {
+        m_kernelAlertCard->setVisible(false);
+    }
+
+    onKernelSelectionChanged();
+}
+
+void MainWindow::onKernelSelectionChanged() {
+    QString targetVer = m_comboTargetKernel->currentData().toString();
+    if (targetVer.isEmpty()) return;
+
+    QString prevVariant = m_comboKernelVariant->currentData().toString();
+    m_comboKernelVariant->blockSignals(true);
+    m_comboKernelVariant->clear();
+
+    QString genericFile = QString("vmlinuz-generic-%1").arg(targetVer);
+    QString hugeFile = QString("vmlinuz-huge-%1").arg(targetVer);
+    QString customFile = QString("vmlinuz-custom-%1").arg(targetVer);
+
+    if (QFile::exists("/boot/" + genericFile)) {
+        m_comboKernelVariant->addItem(genericFile + " (Recomendado - Requiere initrd)", genericFile);
+    }
+    if (QFile::exists("/boot/" + hugeFile)) {
+        m_comboKernelVariant->addItem(hugeFile + " (Monolítico)", hugeFile);
+    }
+    if (QFile::exists("/boot/" + customFile)) {
+        m_comboKernelVariant->addItem(customFile + " (Imagen bzImage compilada)", customFile);
+    }
+    if (m_comboKernelVariant->count() == 0) {
+        m_comboKernelVariant->addItem(genericFile + " (Estándar)", genericFile);
+    }
+    if (m_kernelInfo.hasKernelSources) {
+        m_comboKernelVariant->addItem(
+            QString("Compilar nueva imagen bzImage desde /usr/src/linux -> %1").arg(customFile),
+            "BUILD_BZIMAGE:" + customFile
+        );
+    }
+
+    int idx = m_comboKernelVariant->findData(prevVariant);
+    if (idx >= 0) m_comboKernelVariant->setCurrentIndex(idx);
+    m_comboKernelVariant->blockSignals(false);
+
+    // Actualizar módulos recomendados para la versión elegida si el campo está vacío
+    QString mods = detectRecommendedInitrdModules(targetVer);
+    if (!mods.isEmpty()) {
+        m_editInitrdModules->setText(mods);
+    }
+
+    updateBootloaderPreview();
+}
+
+QString MainWindow::buildBootloaderPreviewText() const {
+    QString targetVer = m_comboTargetKernel->currentData().toString();
+    QString variantData = m_comboKernelVariant->currentData().toString();
+    QString kernelFileName = variantData.startsWith("BUILD_BZIMAGE:")
+        ? variantData.mid(14)
+        : variantData;
+
+    QString rootDev = m_editRootDevice->text().trimmed();
+    QString initrdFileName = QString("initrd-%1.gz").arg(targetVer);
+    bool useInitrd = m_chkGenerateInitrd->isChecked() || QFile::exists("/boot/" + initrdFileName);
+
+    QString preview;
+    if (m_kernelInfo.bootloaderType == "ELILO") {
+        preview += QString("# Destino: %1 (Respaldo automático .bak)\n").arg(m_kernelInfo.bootloaderConfigPath);
+        preview += QString("# Copia a ESP: /boot/%1 y /boot/%2 -> %3/\n\n")
+                       .arg(kernelFileName, useInitrd ? initrdFileName : "(sin initrd)", m_kernelInfo.efiSlackwareDir);
+        preview += "chooser=simple\ndelay=1\ntimeout=1\n#\ndefault=Slackware\n#\n";
+        preview += QString("image=%1\n").arg(kernelFileName);
+        preview += "\tlabel=Slackware\n";
+        if (useInitrd) {
+            preview += QString("\tinitrd=%1\n").arg(initrdFileName);
+        }
+        preview += "\tread-only\n";
+        preview += QString("\tappend=\"root=%1 vga=normal ro\"\n").arg(rootDev);
+        if (m_chkKeepFallbackEntry->isChecked()) {
+            preview += "\n# + Entrada de respaldo anterior conservada como label=Slackware-Prev";
+        }
+    } else if (m_kernelInfo.bootloaderType == "LILO") {
+        preview += "# Destino: /etc/lilo.conf (Respaldo .bak) + ejecución obligatoria de /sbin/lilo\n\n";
+        preview += QString("image = /boot/%1\n").arg(kernelFileName);
+        preview += QString("  root = %1\n").arg(rootDev);
+        preview += "  label = Slackware\n";
+        if (useInitrd) {
+            preview += QString("  initrd = /boot/%1\n").arg(initrdFileName);
+        }
+        preview += "  read-only\n";
+        if (m_chkKeepFallbackEntry->isChecked()) {
+            preview += "\n# + Entrada anterior conservada como label = Slackware-Prev\n";
+        }
+        preview += "# Comando final: /sbin/lilo -v";
+    } else if (m_kernelInfo.bootloaderType == "GRUB") {
+        preview += "# Destino: /boot/grub/grub.cfg (Respaldo automático .bak)\n";
+        preview += "# GRUB detectará automáticamente los kernels en /boot y sus initrd correspondientes:\n";
+        preview += QString("#   - /boot/%1\n").arg(kernelFileName);
+        if (useInitrd) {
+            preview += QString("#   - /boot/%1\n").arg(initrdFileName);
+        }
+        preview += "\n/usr/sbin/grub-mkconfig -o /boot/grub/grub.cfg";
+    } else {
+        preview = "# No se detectó ELILO, LILO ni GRUB en rutas estándar.\n"
+                  "# Puede generar únicamente el archivo /boot/" + initrdFileName + " en el paso 3.";
+    }
+
+    return preview;
+}
+
+void MainWindow::updateBootloaderPreview() {
+    m_bootloaderPreview->setPlainText(buildBootloaderPreviewText());
+}
+
+QString MainWindow::buildKernelExecutionScript(bool buildBzImage, bool buildInitrd, bool updateBootloader) const {
+    QString targetVer = m_comboTargetKernel->currentData().toString();
+    QString variantData = m_comboKernelVariant->currentData().toString();
+    QString kernelFileName = variantData.startsWith("BUILD_BZIMAGE:")
+        ? variantData.mid(14)
+        : variantData;
+
+    QString rootDev = m_editRootDevice->text().trimmed();
+    QString rootFs = m_editRootFs->text().trimmed();
+    QString modules = m_editInitrdModules->text().trimmed();
+    bool includeUdev = m_chkIncludeUdev->isChecked();
+    bool keepFallback = m_chkKeepFallbackEntry->isChecked();
+
+    QString initrdFileName = QString("initrd-%1.gz").arg(targetVer);
+    QStringList cmds;
+    cmds << "set -e";
+    cmds << "echo '===================================================================='";
+    cmds << "echo 'INICIANDO PROCESO DE KERNEL Y ARRANQUE COMO USUARIO ROOT'";
+    cmds << "echo '===================================================================='";
+
+    // 1. Compilación de bzImage si fue seleccionada
+    if (buildBzImage) {
+        cmds << "echo '>>> [1/3] Compilando imagen bzImage y módulos desde /usr/src/linux...'";
+        cmds << "cd /usr/src/linux";
+        cmds << "make -j$(nproc) bzImage";
+        cmds << "make -j$(nproc) modules";
+        cmds << "make modules_install";
+        cmds << QString("cp -v arch/x86/boot/bzImage /boot/%1").arg(kernelFileName);
+        cmds << QString("cp -v System.map /boot/System.map-custom-%1").arg(targetVer);
+    }
+
+    // 2. Generación de initrd (siguiendo la lógica segura de make_initrd_new_kernel.sh)
+    if (buildInitrd) {
+        cmds << QString("echo '>>> Generando /boot/%1 para kernel %2...'").arg(initrdFileName, targetVer);
+        QString mkinitrdCmd = QString("/sbin/mkinitrd -c -k '%1' -f '%2' -r '%3'")
+                                  .arg(targetVer, rootFs, rootDev);
+        if (!modules.isEmpty()) {
+            mkinitrdCmd += QString(" -m '%1'").arg(modules);
+        }
+        if (includeUdev) {
+            mkinitrdCmd += " -u";
+        }
+        mkinitrdCmd += QString(" -o '/boot/%1'").arg(initrdFileName);
+        cmds << mkinitrdCmd;
+
+        cmds << QString("if [ ! -f '/boot/%1' ]; then echo 'ERROR: No se generó /boot/%1'; exit 1; fi")
+                    .arg(initrdFileName);
+        cmds << QString("echo '>>> initrd generado correctamente: /boot/%1'").arg(initrdFileName);
+    }
+
+    // 3. Actualización del Bootloader (ELILO, LILO o GRUB)
+    if (updateBootloader) {
+        bool attachInitrd = buildInitrd || QFile::exists("/boot/" + initrdFileName);
+
+        cmds << QString("if [ ! -f '/boot/%1' ]; then echo 'ERROR: No existe /boot/%1'; exit 1; fi")
+                    .arg(kernelFileName);
+
+        if (m_kernelInfo.bootloaderType == "ELILO") {
+            QString espDir = m_kernelInfo.efiSlackwareDir;
+            QString eliloConf = m_kernelInfo.bootloaderConfigPath;
+
+            cmds << QString("echo '>>> Actualizando ELILO en %1...'").arg(espDir);
+            cmds << QString("mkdir -p '%1'").arg(espDir);
+            cmds << QString("cp -v '/boot/%1' '%2/'").arg(kernelFileName, espDir);
+            if (attachInitrd) {
+                cmds << QString("cp -v '/boot/%1' '%2/'").arg(initrdFileName, espDir);
+            }
+            cmds << QString("if [ -f '%1' ]; then cp -v '%1' '%1.bak.$(date +%%Y%%m%%d%%H%%M%%S)'; fi").arg(eliloConf);
+
+            QString newStanza = QString("chooser=simple\\ndelay=1\\ntimeout=1\\n#\\ndefault=Slackware\\n#\\n"
+                                        "image=%1\\n\\tlabel=Slackware\\n").arg(kernelFileName);
+            if (attachInitrd) {
+                newStanza += QString("\\tinitrd=%1\\n").arg(initrdFileName);
+            }
+            newStanza += QString("\\tread-only\\n\\tappend=\"root=%1 vga=normal ro\"\\n").arg(rootDev);
+
+            if (keepFallback) {
+                cmds << QString(
+                    "PREV_STANZA=''; "
+                    "if [ -f '%1' ]; then "
+                    "  PREV_STANZA=$(awk '/^image=/{flag=1} flag{print}' '%1' | sed '0,/label=Slackware/s//label=Slackware-Prev/'); "
+                    "fi; "
+                    "printf '%2' > '%1'; "
+                    "if [ -n \"$PREV_STANZA\" ]; then printf '\\n# Entrada anterior de respaldo\\n%%s\\n' \"$PREV_STANZA\" >> '%1'; fi"
+                ).arg(eliloConf, newStanza);
+            } else {
+                cmds << QString("printf '%2' > '%1'").arg(eliloConf, newStanza);
+            }
+
+            cmds << QString("echo '>>> Contenido actualizado de %1:' && cat '%1'").arg(eliloConf);
+        } else if (m_kernelInfo.bootloaderType == "LILO") {
+            cmds << "echo '>>> Actualizando /etc/lilo.conf y ejecutando /sbin/lilo...'";
+            cmds << "cp -v /etc/lilo.conf /etc/lilo.conf.bak.$(date +%Y%m%d%H%M%S)";
+
+            QString liloStanza = QString("image = /boot/%1\\n  root = %2\\n  label = Slackware\\n")
+                                     .arg(kernelFileName, rootDev);
+            if (attachInitrd) {
+                liloStanza += QString("  initrd = /boot/%1\\n").arg(initrdFileName);
+            }
+            liloStanza += "  read-only\\n";
+
+            if (keepFallback) {
+                cmds << QString(
+                    "HEADER=$(awk '/^image[[:space:]]*=/{exit} {print}' /etc/lilo.conf); "
+                    "OLD_STANZAS=$(awk '/^image[[:space:]]*=/{flag=1} flag{print}' /etc/lilo.conf | sed '0,/label[[:space:]]*=[[:space:]]*Slackware/s//label = Slackware-Prev/'); "
+                    "printf '%%s\\n\\n%1\\n%%s\\n' \"$HEADER\" \"$OLD_STANZAS\" > /etc/lilo.conf"
+                ).arg(liloStanza);
+            } else {
+                cmds << QString(
+                    "HEADER=$(awk '/^image[[:space:]]*=/{exit} {print}' /etc/lilo.conf); "
+                    "printf '%%s\\n\\n%1\\n' \"$HEADER\" > /etc/lilo.conf"
+                ).arg(liloStanza);
+            }
+
+            cmds << "/sbin/lilo -v";
+        } else if (m_kernelInfo.bootloaderType == "GRUB") {
+            cmds << "echo '>>> Regenerando configuración de GRUB (/boot/grub/grub.cfg)...'";
+            cmds << "if [ -f /boot/grub/grub.cfg ]; then cp -v /boot/grub/grub.cfg /boot/grub/grub.cfg.bak.$(date +%Y%m%d%H%M%S); fi";
+            cmds << "grub-mkconfig -o /boot/grub/grub.cfg";
+        } else {
+            cmds << "echo 'AVISO: No se detectó ELILO, LILO ni GRUB. Actualice su gestor de arranque manualmente.'";
+        }
+    }
+
+    cmds << "echo '===================================================================='";
+    cmds << "echo 'PROCESO COMPLETADO EXITOSAMENTE'";
+    cmds << "echo '===================================================================='";
+
+    return cmds.join(" && ");
+}
+
+bool MainWindow::confirmRootKernelAction(const QString &actionTitle,
+                                         const QStringList &configSummaryLines,
+                                         const QString &commandPreview) {
+    QDialog dialog(this);
+    dialog.setWindowTitle("Confirmación Obligatoria de Usuario ROOT - " + actionTitle);
+    dialog.resize(740, 520);
+
+    QVBoxLayout *layout = new QVBoxLayout(&dialog);
+    layout->setSpacing(10);
+
+    bool isAlreadyRoot = (geteuid() == 0);
+    QString rootBannerText = isAlreadyRoot
+        ? "<b>ATENCIÓN (SESIÓN ROOT ACTIVA - UID 0):</b> Aunque ya ha iniciado sesión como usuario <b>root</b>, "
+          "por seguridad debe revisar cuidadosamente cada configuración seleccionada antes de dar <b>Aceptar</b>."
+        : "<b>ATENCIÓN (SE REQUIEREN PRIVILEGIOS DE ROOT):</b> Los cambios seleccionados modifican el kernel y/o "
+          "el arranque del sistema y deben ser ejecutados por el usuario <b>root</b> (se solicitará contraseña vía <code>pkexec</code>). "
+          "Lea atentamente todas las configuraciones antes de dar <b>Aceptar</b>.";
+
+    QLabel *lblTopWarn = new QLabel(rootBannerText, &dialog);
+    lblTopWarn->setWordWrap(true);
+    lblTopWarn->setStyleSheet(
+        "background-color: #ffebee; color: #b71c1c; border: 1px solid #ef5350; "
+        "border-left: 5px solid #c62828; border-radius: 4px; padding: 10px; font-size: 9.5pt;"
+    );
+    layout->addWidget(lblTopWarn);
+
+    QLabel *lblSummaryHeader = new QLabel("<b>Resumen de las configuraciones seleccionadas:</b>", &dialog);
+    layout->addWidget(lblSummaryHeader);
+
+    QTextEdit *summaryView = new QTextEdit(&dialog);
+    summaryView->setReadOnly(true);
+    summaryView->setMaximumHeight(165);
+    summaryView->setPlainText(configSummaryLines.join("\n"));
+    summaryView->setStyleSheet("background-color: #f5f5f5; color: #212121; font-size: 9.5pt; border-radius: 4px;");
+    layout->addWidget(summaryView);
+
+    QLabel *lblCmdHeader = new QLabel("<b>Comandos exactos que ejecutará el usuario root:</b>", &dialog);
+    layout->addWidget(lblCmdHeader);
+
+    QTextEdit *cmdView = new QTextEdit(&dialog);
+    cmdView->setReadOnly(true);
+    cmdView->setMaximumHeight(120);
+    cmdView->setPlainText(commandPreview);
+    cmdView->setStyleSheet("background-color: #1e1e1e; color: #d4d4d4; font-family: monospace; font-size: 8.5pt;");
+    layout->addWidget(cmdView);
+
+    QCheckBox *chkReadAck = new QCheckBox(
+        "He leído atentamente todas las configuraciones seleccionadas y autorizo realizar estos cambios como usuario root.",
+        &dialog
+    );
+    chkReadAck->setStyleSheet("font-weight: bold; color: #1a237e; padding: 4px;");
+    layout->addWidget(chkReadAck);
+
+    QHBoxLayout *btnRow = new QHBoxLayout();
+    QPushButton *btnCancel = new QPushButton("Cancelar y revisar", &dialog);
+    QPushButton *btnAccept = new QPushButton("Aceptar y Ejecutar como root", &dialog);
+    btnAccept->setEnabled(false);
+    btnAccept->setStyleSheet(
+        "QPushButton { background-color: #c62828; color: white; font-weight: bold; padding: 7px 18px; border-radius: 4px; }"
+        "QPushButton:hover:enabled { background-color: #b71c1c; }"
+        "QPushButton:disabled { background-color: #ef9a9a; color: #fafafa; }"
+    );
+
+    btnRow->addStretch();
+    btnRow->addWidget(btnCancel);
+    btnRow->addWidget(btnAccept);
+    layout->addLayout(btnRow);
+
+    connect(chkReadAck, &QCheckBox::toggled, btnAccept, &QPushButton::setEnabled);
+    connect(btnCancel, &QPushButton::clicked, &dialog, &QDialog::reject);
+    connect(btnAccept, &QPushButton::clicked, &dialog, &QDialog::accept);
+
+    return dialog.exec() == QDialog::Accepted;
+}
+
+void MainWindow::runGenerateInitrdOnly() {
+    QString targetVer = m_comboTargetKernel->currentData().toString();
+    QString rootDev = m_editRootDevice->text().trimmed();
+    QString rootFs = m_editRootFs->text().trimmed();
+    QString modules = m_editInitrdModules->text().trimmed();
+
+    QStringList summary = {
+        "• Operación: Generación exclusiva de imagen initrd",
+        "• Usuario ejecutor: root",
+        "• Kernel objetivo: " + targetVer,
+        "• Partición raíz (-r): " + rootDev,
+        "• Sistema de archivos (-f): " + rootFs,
+        "• Módulos (-m): " + (modules.isEmpty() ? "(Autodetección)" : modules),
+        "• Soporte udev (-u): " + QString(m_chkIncludeUdev->isChecked() ? "Sí" : "No"),
+        "• Archivo de salida: /boot/initrd-" + targetVer + ".gz"
+    };
+
+    QString script = buildKernelExecutionScript(false, true, false);
+    if (!confirmRootKernelAction("Generar initrd", summary, script)) return;
+
+    if (!m_btnToggleConsole->isChecked()) {
+        m_btnToggleConsole->setChecked(true);
+        toggleConsole();
+    }
+
+    executePrivilegedCommand("/bin/sh", {"-c", script},
+                             QString("Generando /boot/initrd-%1.gz como root...").arg(targetVer));
+}
+
+void MainWindow::runUpdateBootloaderOnly() {
+    QString targetVer = m_comboTargetKernel->currentData().toString();
+    QString variantData = m_comboKernelVariant->currentData().toString();
+    QString kernelFileName = variantData.startsWith("BUILD_BZIMAGE:") ? variantData.mid(14) : variantData;
+
+    QStringList summary = {
+        "• Operación: Actualización exclusiva del Bootloader",
+        "• Usuario ejecutor: root",
+        "• Bootloader detectado: " + m_kernelInfo.bootloaderType + " (" + m_kernelInfo.bootloaderConfigPath + ")",
+        "• Kernel objetivo: " + targetVer + " (/boot/" + kernelFileName + ")",
+        "• Respaldo automático (.bak): Activado",
+        "• Conservar entrada anterior (Slackware-Prev): " + QString(m_chkKeepFallbackEntry->isChecked() ? "Sí" : "No")
+    };
+
+    QString script = buildKernelExecutionScript(false, false, true);
+    if (!confirmRootKernelAction("Actualizar Bootloader", summary, script)) return;
+
+    if (!m_btnToggleConsole->isChecked()) {
+        m_btnToggleConsole->setChecked(true);
+        toggleConsole();
+    }
+
+    executePrivilegedCommand("/bin/sh", {"-c", script},
+                             QString("Actualizando %1 para kernel %2 como root...")
+                                 .arg(m_kernelInfo.bootloaderType, targetVer));
+}
+
+void MainWindow::runFullKernelWorkflow() {
+    QString targetVer = m_comboTargetKernel->currentData().toString();
+    QString variantData = m_comboKernelVariant->currentData().toString();
+    bool buildBzImage = variantData.startsWith("BUILD_BZIMAGE:");
+    QString kernelFileName = buildBzImage ? variantData.mid(14) : variantData;
+    bool buildInitrd = m_chkGenerateInitrd->isChecked();
+    bool updateBoot = m_chkUpdateBootloader->isChecked();
+
+    if (!buildBzImage && !buildInitrd && !updateBoot) {
+        QMessageBox::information(this, "Sin acciones marcadas",
+                                 "Marque al menos la generación de initrd o la actualización del bootloader.");
+        return;
+    }
+
+    QStringList summary = {
+        "• Operación: Configuración completa de Kernel y Arranque",
+        "• Usuario ejecutor: root",
+        "• Kernel objetivo: " + targetVer,
+        "• Imagen de Kernel: " + kernelFileName + (buildBzImage ? " (Se compilará bzImage desde /usr/src/linux)" : " (Existente en /boot)"),
+        "• Generar initrd: " + QString(buildInitrd ? "Sí (/boot/initrd-" + targetVer + ".gz)" : "No"),
+        "• Partición raíz / FS: " + m_editRootDevice->text().trimmed() + " (" + m_editRootFs->text().trimmed() + ")",
+        "• Actualizar Bootloader: " + QString(updateBoot ? m_kernelInfo.bootloaderType + " (" + m_kernelInfo.bootloaderConfigPath + ")" : "No"),
+        "• Conservar entrada anterior (Slackware-Prev): " + QString(m_chkKeepFallbackEntry->isChecked() ? "Sí" : "No")
+    };
+
+    QString script = buildKernelExecutionScript(buildBzImage, buildInitrd, updateBoot);
+    if (!confirmRootKernelAction("Configuración Completa de Kernel", summary, script)) return;
+
+    if (!m_btnToggleConsole->isChecked()) {
+        m_btnToggleConsole->setChecked(true);
+        toggleConsole();
+    }
+
+    executePrivilegedCommand("/bin/sh", {"-c", script},
+                             QString("Configurando kernel %1 y %2 como root...")
+                                 .arg(targetVer, m_kernelInfo.bootloaderType));
+}
+
+// ============================================================================
+// BANDEJA DEL SISTEMA Y RED
+// ============================================================================
 
 void MainWindow::setupTrayIcon() {
     m_trayIcon = new QSystemTrayIcon(this);
     updateTrayIconState(StateUpToDate, 0);
-    m_trayIcon->setToolTip("QSlackpkg - Package Manager for Slackware Linux");
+    m_trayIcon->setToolTip("QSlackpkg - Package & Kernel Manager for Slackware Linux");
 
     m_trayMenu = new QMenu(this);
     QAction *showAction = m_trayMenu->addAction("Abrir Centro de Software");
@@ -304,11 +1278,11 @@ void MainWindow::setupTrayIcon() {
 void MainWindow::updateTrayIconState(TrayState state, int count) {
     QIcon baseIcon;
     if (state == StateUpToDate) {
-        baseIcon = style()->standardIcon(QStyle::SP_DialogApplyButton); // Escudo con tilde verde / aplicacion
+        baseIcon = style()->standardIcon(QStyle::SP_DialogApplyButton);
     } else if (state == StateUpdatesAvailable) {
-        baseIcon = style()->standardIcon(QStyle::SP_MessageBoxWarning); // Advertencia / actualizaciones
+        baseIcon = style()->standardIcon(QStyle::SP_MessageBoxWarning);
     } else {
-        baseIcon = style()->standardIcon(QStyle::SP_BrowserReload); // Actualizando / trabajando
+        baseIcon = style()->standardIcon(QStyle::SP_BrowserReload);
     }
 
     if (state == StateUpdatesAvailable && count > 0) {
@@ -318,7 +1292,7 @@ void MainWindow::updateTrayIconState(TrayState state, int count) {
 
         QRect badgeRect(12, 0, 12, 12);
         if (count > 9) badgeRect.setRight(16);
-        painter.setBrush(QColor("#e53935")); // Rojo distintivo
+        painter.setBrush(QColor("#e53935"));
         painter.setPen(Qt::NoPen);
         painter.drawEllipse(badgeRect);
 
@@ -631,6 +1605,14 @@ void MainWindow::scanPendingUpgrades() {
         m_statusBanner->setText(QString("Atención: Hay %1 paquete(s) oficial(es) listos para actualizar.").arg(pendingCount));
         m_btnPendingDetails->setText(QString("Ver %1 paquete(s) a actualizar...").arg(pendingCount));
         updateTrayIconState(StateUpdatesAvailable, pendingCount);
+    } else if (m_kernelInfo.newKernelPendingConfig) {
+        if (bannerContainer) bannerContainer->setStyleSheet("#bannerContainer { background-color: #d84315; border-radius: 6px; }");
+        m_statusBanner->setText(
+            QString("¡Nuevo Kernel instalado (%1)! Configure initrd y %2 en la pestaña 'Kernel y Arranque' antes de reiniciar.")
+                .arg(m_kernelInfo.latestInstalledKernel, m_kernelInfo.bootloaderType)
+        );
+        m_btnPendingDetails->setText("0 paquetes oficiales pendientes");
+        updateTrayIconState(StateUpdatesAvailable, 1);
     } else {
         if (bannerContainer) bannerContainer->setStyleSheet("#bannerContainer { background-color: #2e7d32; border-radius: 6px; }");
         m_statusBanner->setText("Sistema base al día. Coincide con slackpkg: 0 paquetes pendientes.");
@@ -1151,7 +2133,6 @@ void MainWindow::readProcessOutput() {
     QByteArray data = m_process->readAllStandardOutput();
     QString text = stripAnsiCodes(QString::fromUtf8(data));
 
-    // Analizar porcentaje en tiempo real para la barra de progreso
     static QRegularExpression percentRx("(\\d{1,3})%");
     QRegularExpressionMatch match = percentRx.match(text);
     if (match.hasMatch()) {
@@ -1182,8 +2163,21 @@ void MainWindow::processFinished(int exitCode, QProcess::ExitStatus exitStatus) 
     setUiEnabled(true);
     m_consoleOutput->append(QString("\n>>> Proceso finalizado (Código: %1)").arg(exitCode));
 
+    bool hadPendingKernelBefore = m_kernelInfo.newKernelPendingConfig;
+
+    scanKernelEnvironment();
     scanPendingUpgrades();
     scanSboRepository();
+
+    if (!hadPendingKernelBefore && m_kernelInfo.newKernelPendingConfig) {
+        m_tabs->setCurrentIndex(2);
+        m_trayIcon->showMessage(
+            "¡Nuevo Kernel instalado!",
+            QString("Se detectó el kernel %1. Genere initrd y actualice %2 antes de reiniciar.")
+                .arg(m_kernelInfo.latestInstalledKernel, m_kernelInfo.bootloaderType),
+            QSystemTrayIcon::Warning, 8000
+        );
+    }
 }
 
 void MainWindow::setUiEnabled(bool enabled) {
@@ -1193,6 +2187,12 @@ void MainWindow::setUiEnabled(bool enabled) {
     m_btnSboSync->setEnabled(enabled && QFile::exists("/usr/sbin/sbopkg"));
     m_packageTable->setEnabled(enabled);
     m_sboTable->setEnabled(enabled);
+
+    m_btnRescanKernel->setEnabled(enabled);
+    m_btnRunInitrdOnly->setEnabled(enabled);
+    m_btnRunBootloaderOnly->setEnabled(enabled);
+    m_btnRunFullKernelFlow->setEnabled(enabled);
+
     m_progressBar->setVisible(!enabled);
     if (!enabled) {
         m_btnUpgrade->setEnabled(false);
@@ -1242,4 +2242,11 @@ QMap<QString, QString> MainWindow::loadProxyEnvironment() {
         }
     }
     return proxyVars;
+}
+
+MainWindow::~MainWindow() {
+    if (m_process->state() != QProcess::NotRunning) {
+        m_process->terminate();
+        m_process->waitForFinished(3000);
+    }
 }
