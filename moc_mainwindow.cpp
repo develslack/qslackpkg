@@ -22,8 +22,8 @@ QT_BEGIN_MOC_NAMESPACE
 QT_WARNING_PUSH
 QT_WARNING_DISABLE_DEPRECATED
 struct qt_meta_stringdata_MainWindow_t {
-    QByteArrayData data[34];
-    char stringdata0[551];
+    QByteArrayData data[36];
+    char stringdata0[587];
 };
 #define QT_MOC_LITERAL(idx, ofs, len) \
     Q_STATIC_BYTE_ARRAY_DATA_HEADER_INITIALIZER_WITH_OFFSET(len, \
@@ -49,23 +49,25 @@ QT_MOC_LITERAL(13, 175, 14), // "SboPackageInfo"
 QT_MOC_LITERAL(14, 190, 3), // "pkg"
 QT_MOC_LITERAL(15, 194, 21), // "scanKernelEnvironment"
 QT_MOC_LITERAL(16, 216, 24), // "onKernelSelectionChanged"
-QT_MOC_LITERAL(17, 241, 23), // "updateBootloaderPreview"
-QT_MOC_LITERAL(18, 265, 21), // "runGenerateInitrdOnly"
-QT_MOC_LITERAL(19, 287, 23), // "runUpdateBootloaderOnly"
-QT_MOC_LITERAL(20, 311, 21), // "runFullKernelWorkflow"
-QT_MOC_LITERAL(21, 333, 17), // "readProcessOutput"
-QT_MOC_LITERAL(22, 351, 15), // "processFinished"
-QT_MOC_LITERAL(23, 367, 8), // "exitCode"
-QT_MOC_LITERAL(24, 376, 20), // "QProcess::ExitStatus"
-QT_MOC_LITERAL(25, 397, 10), // "exitStatus"
-QT_MOC_LITERAL(26, 408, 13), // "toggleConsole"
-QT_MOC_LITERAL(27, 422, 24), // "checkUpdatesInBackground"
-QT_MOC_LITERAL(28, 447, 21), // "onChangeLogDownloaded"
-QT_MOC_LITERAL(29, 469, 14), // "QNetworkReply*"
-QT_MOC_LITERAL(30, 484, 5), // "reply"
-QT_MOC_LITERAL(31, 490, 19), // "onTrayIconActivated"
-QT_MOC_LITERAL(32, 510, 33), // "QSystemTrayIcon::ActivationRe..."
-QT_MOC_LITERAL(33, 544, 6) // "reason"
+QT_MOC_LITERAL(17, 241, 27), // "onToggleUnlockStorageParams"
+QT_MOC_LITERAL(18, 269, 7), // "checked"
+QT_MOC_LITERAL(19, 277, 23), // "updateBootloaderPreview"
+QT_MOC_LITERAL(20, 301, 21), // "runGenerateInitrdOnly"
+QT_MOC_LITERAL(21, 323, 23), // "runUpdateBootloaderOnly"
+QT_MOC_LITERAL(22, 347, 21), // "runFullKernelWorkflow"
+QT_MOC_LITERAL(23, 369, 17), // "readProcessOutput"
+QT_MOC_LITERAL(24, 387, 15), // "processFinished"
+QT_MOC_LITERAL(25, 403, 8), // "exitCode"
+QT_MOC_LITERAL(26, 412, 20), // "QProcess::ExitStatus"
+QT_MOC_LITERAL(27, 433, 10), // "exitStatus"
+QT_MOC_LITERAL(28, 444, 13), // "toggleConsole"
+QT_MOC_LITERAL(29, 458, 24), // "checkUpdatesInBackground"
+QT_MOC_LITERAL(30, 483, 21), // "onChangeLogDownloaded"
+QT_MOC_LITERAL(31, 505, 14), // "QNetworkReply*"
+QT_MOC_LITERAL(32, 520, 5), // "reply"
+QT_MOC_LITERAL(33, 526, 19), // "onTrayIconActivated"
+QT_MOC_LITERAL(34, 546, 33), // "QSystemTrayIcon::ActivationRe..."
+QT_MOC_LITERAL(35, 580, 6) // "reason"
 
     },
     "MainWindow\0runUpdate\0\0runUpgradeAll\0"
@@ -75,6 +77,7 @@ QT_MOC_LITERAL(33, 544, 6) // "reason"
     "onInstallSboClicked\0SboPackageInfo\0"
     "pkg\0scanKernelEnvironment\0"
     "onKernelSelectionChanged\0"
+    "onToggleUnlockStorageParams\0checked\0"
     "updateBootloaderPreview\0runGenerateInitrdOnly\0"
     "runUpdateBootloaderOnly\0runFullKernelWorkflow\0"
     "readProcessOutput\0processFinished\0"
@@ -93,7 +96,7 @@ static const uint qt_meta_data_MainWindow[] = {
        8,       // revision
        0,       // classname
        0,    0, // classinfo
-      21,   14, // methods
+      22,   14, // methods
        0,    0, // properties
        0,    0, // enums/sets
        0,    0, // constructors
@@ -101,27 +104,28 @@ static const uint qt_meta_data_MainWindow[] = {
        0,       // signalCount
 
  // slots: name, argc, parameters, tag, flags
-       1,    0,  119,    2, 0x08 /* Private */,
-       3,    0,  120,    2, 0x08 /* Private */,
-       4,    0,  121,    2, 0x08 /* Private */,
-       5,    2,  122,    2, 0x08 /* Private */,
-       8,    0,  127,    2, 0x08 /* Private */,
-       9,    0,  128,    2, 0x08 /* Private */,
-      10,    0,  129,    2, 0x08 /* Private */,
-      11,    0,  130,    2, 0x08 /* Private */,
-      12,    1,  131,    2, 0x08 /* Private */,
-      15,    0,  134,    2, 0x08 /* Private */,
-      16,    0,  135,    2, 0x08 /* Private */,
-      17,    0,  136,    2, 0x08 /* Private */,
-      18,    0,  137,    2, 0x08 /* Private */,
-      19,    0,  138,    2, 0x08 /* Private */,
-      20,    0,  139,    2, 0x08 /* Private */,
-      21,    0,  140,    2, 0x08 /* Private */,
-      22,    2,  141,    2, 0x08 /* Private */,
-      26,    0,  146,    2, 0x08 /* Private */,
-      27,    0,  147,    2, 0x08 /* Private */,
-      28,    1,  148,    2, 0x08 /* Private */,
-      31,    1,  151,    2, 0x08 /* Private */,
+       1,    0,  124,    2, 0x08 /* Private */,
+       3,    0,  125,    2, 0x08 /* Private */,
+       4,    0,  126,    2, 0x08 /* Private */,
+       5,    2,  127,    2, 0x08 /* Private */,
+       8,    0,  132,    2, 0x08 /* Private */,
+       9,    0,  133,    2, 0x08 /* Private */,
+      10,    0,  134,    2, 0x08 /* Private */,
+      11,    0,  135,    2, 0x08 /* Private */,
+      12,    1,  136,    2, 0x08 /* Private */,
+      15,    0,  139,    2, 0x08 /* Private */,
+      16,    0,  140,    2, 0x08 /* Private */,
+      17,    1,  141,    2, 0x08 /* Private */,
+      19,    0,  144,    2, 0x08 /* Private */,
+      20,    0,  145,    2, 0x08 /* Private */,
+      21,    0,  146,    2, 0x08 /* Private */,
+      22,    0,  147,    2, 0x08 /* Private */,
+      23,    0,  148,    2, 0x08 /* Private */,
+      24,    2,  149,    2, 0x08 /* Private */,
+      28,    0,  154,    2, 0x08 /* Private */,
+      29,    0,  155,    2, 0x08 /* Private */,
+      30,    1,  156,    2, 0x08 /* Private */,
+      33,    1,  159,    2, 0x08 /* Private */,
 
  // slots: parameters
     QMetaType::Void,
@@ -135,16 +139,17 @@ static const uint qt_meta_data_MainWindow[] = {
     QMetaType::Void, 0x80000000 | 13,   14,
     QMetaType::Void,
     QMetaType::Void,
+    QMetaType::Void, QMetaType::Bool,   18,
     QMetaType::Void,
     QMetaType::Void,
     QMetaType::Void,
     QMetaType::Void,
     QMetaType::Void,
-    QMetaType::Void, QMetaType::Int, 0x80000000 | 24,   23,   25,
+    QMetaType::Void, QMetaType::Int, 0x80000000 | 26,   25,   27,
     QMetaType::Void,
     QMetaType::Void,
-    QMetaType::Void, 0x80000000 | 29,   30,
-    QMetaType::Void, 0x80000000 | 32,   33,
+    QMetaType::Void, 0x80000000 | 31,   32,
+    QMetaType::Void, 0x80000000 | 34,   35,
 
        0        // eod
 };
@@ -166,22 +171,23 @@ void MainWindow::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, 
         case 8: _t->onInstallSboClicked((*reinterpret_cast< const SboPackageInfo(*)>(_a[1]))); break;
         case 9: _t->scanKernelEnvironment(); break;
         case 10: _t->onKernelSelectionChanged(); break;
-        case 11: _t->updateBootloaderPreview(); break;
-        case 12: _t->runGenerateInitrdOnly(); break;
-        case 13: _t->runUpdateBootloaderOnly(); break;
-        case 14: _t->runFullKernelWorkflow(); break;
-        case 15: _t->readProcessOutput(); break;
-        case 16: _t->processFinished((*reinterpret_cast< int(*)>(_a[1])),(*reinterpret_cast< QProcess::ExitStatus(*)>(_a[2]))); break;
-        case 17: _t->toggleConsole(); break;
-        case 18: _t->checkUpdatesInBackground(); break;
-        case 19: _t->onChangeLogDownloaded((*reinterpret_cast< QNetworkReply*(*)>(_a[1]))); break;
-        case 20: _t->onTrayIconActivated((*reinterpret_cast< QSystemTrayIcon::ActivationReason(*)>(_a[1]))); break;
+        case 11: _t->onToggleUnlockStorageParams((*reinterpret_cast< bool(*)>(_a[1]))); break;
+        case 12: _t->updateBootloaderPreview(); break;
+        case 13: _t->runGenerateInitrdOnly(); break;
+        case 14: _t->runUpdateBootloaderOnly(); break;
+        case 15: _t->runFullKernelWorkflow(); break;
+        case 16: _t->readProcessOutput(); break;
+        case 17: _t->processFinished((*reinterpret_cast< int(*)>(_a[1])),(*reinterpret_cast< QProcess::ExitStatus(*)>(_a[2]))); break;
+        case 18: _t->toggleConsole(); break;
+        case 19: _t->checkUpdatesInBackground(); break;
+        case 20: _t->onChangeLogDownloaded((*reinterpret_cast< QNetworkReply*(*)>(_a[1]))); break;
+        case 21: _t->onTrayIconActivated((*reinterpret_cast< QSystemTrayIcon::ActivationReason(*)>(_a[1]))); break;
         default: ;
         }
     } else if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
         switch (_id) {
         default: *reinterpret_cast<int*>(_a[0]) = -1; break;
-        case 19:
+        case 20:
             switch (*reinterpret_cast<int*>(_a[1])) {
             default: *reinterpret_cast<int*>(_a[0]) = -1; break;
             case 0:
@@ -221,13 +227,13 @@ int MainWindow::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 21)
+        if (_id < 22)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 21;
+        _id -= 22;
     } else if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 21)
+        if (_id < 22)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 21;
+        _id -= 22;
     }
     return _id;
 }

@@ -95,6 +95,7 @@ private slots:
     // Kernel & Bootloader slots
     void scanKernelEnvironment();
     void onKernelSelectionChanged();
+    void onToggleUnlockStorageParams(bool checked);
     void updateBootloaderPreview();
     void runGenerateInitrdOnly();
     void runUpdateBootloaderOnly();
@@ -133,6 +134,7 @@ private:
     QString detectRecommendedInitrdModules(const QString &kernelVer);
     QString buildBootloaderPreviewText() const;
     QString buildKernelExecutionScript(bool buildBzImage, bool buildInitrd, bool updateBootloader) const;
+    bool validateCriticalBootFields();
     bool confirmRootKernelAction(const QString &actionTitle,
                                  const QStringList &configSummaryLines,
                                  const QString &commandPreview);
@@ -145,6 +147,9 @@ private:
     QNetworkAccessManager *m_netManager;
     QTimer *m_checkTimer;
     QTabWidget *m_tabs;
+
+    // Cabecera y privilegios
+    QLabel *m_lblPrivilegeBadge;
 
     // UI Pestaña Oficial (slackpkg)
     QLabel *m_statusBanner;
@@ -180,6 +185,7 @@ private:
     QComboBox *m_comboKernelVariant;
 
     QCheckBox *m_chkGenerateInitrd;
+    QCheckBox *m_chkUnlockStorageParams;
     QLineEdit *m_editRootDevice;
     QLineEdit *m_editRootFs;
     QLineEdit *m_editInitrdModules;

@@ -29,7 +29,7 @@
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     setWindowTitle("QSlackpkg - Package & Kernel Manager for Slackware Linux");
-    resize(1320, 780);
+    resize(1320, 790);
 
     QPixmap logoPixmap(":/img/Linux-Slackware-Logo-Vector.png");
     if (logoPixmap.isNull()) {
@@ -44,7 +44,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     mainLayout->setSpacing(10);
 
     // ========================================================================
-    // 0. CABECERA VISUAL
+    // 0. CABECERA VISUAL + INDICADOR DE SESIÓN / PRIVILEGIOS
     // ========================================================================
     QWidget *brandHeader = new QWidget(this);
     QVBoxLayout *brandLayout = new QVBoxLayout(brandHeader);
@@ -55,7 +55,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     QLabel *lblLogo = new QLabel(this);
     lblLogo->setAlignment(Qt::AlignCenter);
     if (!logoPixmap.isNull()) {
-        lblLogo->setPixmap(logoPixmap.scaledToHeight(64, Qt::SmoothTransformation));
+        lblLogo->setPixmap(logoPixmap.scaledToHeight(62, Qt::SmoothTransformation));
     } else {
         lblLogo->setText("SLACKWARE LINUX");
         lblLogo->setStyleSheet("font-size: 18pt; font-weight: bold; color: #1a237e;");
@@ -65,11 +65,28 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     lblSubtitle->setAlignment(Qt::AlignCenter);
     lblSubtitle->setStyleSheet(
         "font-size: 11.5pt; font-weight: bold; color: #37474f; "
-        "letter-spacing: 0.5px; padding-bottom: 2px;"
+        "letter-spacing: 0.5px;"
     );
+
+    m_lblPrivilegeBadge = new QLabel(this);
+    m_lblPrivilegeBadge->setAlignment(Qt::AlignCenter);
+    if (geteuid() == 0) {
+        m_lblPrivilegeBadge->setText("Sesión activa como ROOT (UID 0) — Confirmación obligatoria antes de aplicar cambios");
+        m_lblPrivilegeBadge->setStyleSheet(
+            "background-color: #ffebee; color: #b71c1c; border: 1px solid #ef9a9a; "
+            "border-radius: 10px; padding: 3px 14px; font-size: 8.8pt; font-weight: bold;"
+        );
+    } else {
+        m_lblPrivilegeBadge->setText("Modo Informativo (Usuario estándar) — Se exigirá contraseña de ROOT para realizar cualquier operación");
+        m_lblPrivilegeBadge->setStyleSheet(
+            "background-color: #eceff1; color: #37474f; border: 1px solid #b0bec5; "
+            "border-radius: 10px; padding: 3px 14px; font-size: 8.8pt; font-weight: bold;"
+        );
+    }
 
     brandLayout->addWidget(lblLogo);
     brandLayout->addWidget(lblSubtitle);
+    brandLayout->addWidget(m_lblPrivilegeBadge, 0, Qt::AlignCenter);
     mainLayout->addWidget(brandHeader);
 
     // ========================================================================
@@ -313,7 +330,7 @@ QWidget* MainWindow::createKernelTab() {
     // ------------------------------------------------------------------------
     QString currentSessionNote = (geteuid() == 0)
         ? "Sesión actual detectada: <b>usuario root (UID 0)</b>."
-        : "Sesión actual detectada: <b>usuario estándar</b> (se solicitará autenticación <b>root</b> mediante <code>pkexec</code>).";
+        : "Sesión actual detectada: <b>usuario estándar (Modo Informativo)</b>. Sin ingresar la contraseña de <b>root</b> no se ejecutará ningún cambio.";
 
     QLabel *lblGlobalRootWarning = new QLabel(
         QString("<b>AVISO DE SEGURIDAD Y PRIVILEGIOS (ROOT):</b> Todas las operaciones de este apartado "
@@ -438,50 +455,74 @@ QWidget* MainWindow::createKernelTab() {
     layout->addWidget(grpKernelImg);
 
     // ------------------------------------------------------------------------
-    // BLOQUE 3: GENERACIÓN ASISTIDA DE INITRD (SIN EDITAR SCRIPTS A MANO)
+    // BLOQUE 3: GENERACIÓN ASISTIDA DE INITRD (DISPOSITIVOS BLOQUEADOS POR DEFECTO)
     // ------------------------------------------------------------------------
     QGroupBox *grpInitrd = new QGroupBox("3. Generación de Imagen Inicial RAM (initrd)", container);
     QVBoxLayout *initrdBoxLayout = new QVBoxLayout(grpInitrd);
 
     QLabel *lblStep3RootNote = new QLabel(
-        "<i>Aviso de permisos: La creación de <code>/boot/initrd-&lt;versión&gt;.gz</code> escribe directamente en <code>/boot</code> "
-        "como usuario <b>root</b>. Revise que la partición raíz y el sistema de archivos detectados sean correctos.</i>",
+        "<i>Aviso de permisos y seguridad: La creación de <code>/boot/initrd-&lt;versión&gt;.gz</code> escribe directamente en <code>/boot</code> "
+        "como usuario <b>root</b>. Los parámetros de dispositivo raíz y sistema de archivos están <b>bloqueados por protección</b> "
+        "con los valores autodetectados para evitar dejar el sistema sin arranque.</i>",
         grpInitrd
     );
     lblStep3RootNote->setWordWrap(true);
     lblStep3RootNote->setStyleSheet("color: #6d4c41; font-size: 8.8pt;");
     initrdBoxLayout->addWidget(lblStep3RootNote);
 
+    QHBoxLayout *initrdHeaderRow = new QHBoxLayout();
     m_chkGenerateInitrd = new QCheckBox("Generar archivo /boot/initrd-<versión>.gz automáticamente (Recomendado para kernel-generic)", grpInitrd);
     m_chkGenerateInitrd->setChecked(true);
     m_chkGenerateInitrd->setStyleSheet("font-weight: bold;");
-    initrdBoxLayout->addWidget(m_chkGenerateInitrd);
+
+    m_chkUnlockStorageParams = new QCheckBox("Modo Avanzado: Desbloquear edición de dispositivo raíz, FS y módulos", grpInitrd);
+    m_chkUnlockStorageParams->setChecked(false);
+    m_chkUnlockStorageParams->setStyleSheet("color: #c62828; font-weight: bold;");
+
+    initrdHeaderRow->addWidget(m_chkGenerateInitrd);
+    initrdHeaderRow->addStretch();
+    initrdHeaderRow->addWidget(m_chkUnlockStorageParams);
+    initrdBoxLayout->addLayout(initrdHeaderRow);
+
+    QString lockedFieldStyle =
+        "QLineEdit:disabled { background-color: #eceff1; color: #37474f; font-weight: bold; "
+        "border: 1px solid #b0bec5; border-radius: 3px; padding: 4px; }"
+        "QLineEdit:enabled { background-color: #fffde7; color: #bf360c; font-weight: bold; "
+        "border: 1px solid #e53935; border-radius: 3px; padding: 4px; }";
 
     QGridLayout *initrdGrid = new QGridLayout();
     m_editRootDevice = new QLineEdit(grpInitrd);
-    m_editRootDevice->setPlaceholderText("Ej: /dev/sda2 o /dev/nvme0n1p2");
+    m_editRootDevice->setEnabled(false);
+    m_editRootDevice->setStyleSheet(lockedFieldStyle);
+    m_editRootDevice->setToolTip("Bloqueado por seguridad. Muestra la partición raíz real detectada en el sistema.");
 
     m_editRootFs = new QLineEdit(grpInitrd);
-    m_editRootFs->setPlaceholderText("Ej: ext4, reiserfs, xfs, btrfs");
+    m_editRootFs->setEnabled(false);
+    m_editRootFs->setStyleSheet(lockedFieldStyle);
+    m_editRootFs->setToolTip("Bloqueado por seguridad. Muestra el sistema de archivos raíz real detectado.");
 
     m_editInitrdModules = new QLineEdit(grpInitrd);
-    m_editInitrdModules->setPlaceholderText("Opcional (ej: ext4 o nvme:ext4; vacío = autodetección)");
+    m_editInitrdModules->setPlaceholderText("(Autodetección automática de módulos de almacenamiento/FS)");
+    m_editInitrdModules->setEnabled(false);
+    m_editInitrdModules->setStyleSheet(lockedFieldStyle);
+    m_editInitrdModules->setToolTip("Bloqueado por seguridad. Solo editable en Modo Avanzado.");
 
-    m_chkIncludeUdev = new QCheckBox("Incluir soporte udev (-u) [Estándar Slackware]", grpInitrd);
+    m_chkIncludeUdev = new QCheckBox("Incluir soporte udev (-u) [Obligatorio/Estándar en Slackware]", grpInitrd);
     m_chkIncludeUdev->setChecked(true);
+    m_chkIncludeUdev->setEnabled(false);
 
-    initrdGrid->addWidget(new QLabel("Partición Raíz (-r):", grpInitrd), 0, 0);
+    initrdGrid->addWidget(new QLabel("<b>Partición Raíz (-r) [Protegido]:</b>", grpInitrd), 0, 0);
     initrdGrid->addWidget(m_editRootDevice, 0, 1);
-    initrdGrid->addWidget(new QLabel("Sistema de Archivos (-f):", grpInitrd), 0, 2);
+    initrdGrid->addWidget(new QLabel("<b>Sistema de Archivos (-f) [Protegido]:</b>", grpInitrd), 0, 2);
     initrdGrid->addWidget(m_editRootFs, 0, 3);
-    initrdGrid->addWidget(new QLabel("Módulos del Kernel (-m):", grpInitrd), 1, 0);
+    initrdGrid->addWidget(new QLabel("<b>Módulos del Kernel (-m) [Protegido]:</b>", grpInitrd), 1, 0);
     initrdGrid->addWidget(m_editInitrdModules, 1, 1);
     initrdGrid->addWidget(m_chkIncludeUdev, 1, 2, 1, 2);
 
     initrdBoxLayout->addLayout(initrdGrid);
 
     QHBoxLayout *initrdActionRow = new QHBoxLayout();
-    m_btnRunInitrdOnly = new QPushButton("Ejecutar solo generación de initrd (como root)", grpInitrd);
+    m_btnRunInitrdOnly = new QPushButton("Ejecutar solo generación de initrd (requiere root)", grpInitrd);
     m_btnRunInitrdOnly->setCursor(Qt::PointingHandCursor);
     initrdActionRow->addStretch();
     initrdActionRow->addWidget(m_btnRunInitrdOnly);
@@ -497,7 +538,7 @@ QWidget* MainWindow::createKernelTab() {
 
     QLabel *lblStep4RootNote = new QLabel(
         "<i>Aviso de permisos: Modificar <code>elilo.conf</code>, ejecutar <code>/sbin/lilo</code> o regenerar "
-        "<code>/boot/grub/grub.cfg</code> requiere privilegios de <b>root</b>. Se creará automáticamente un respaldo "
+        "<code>/boot/grub/grub.cfg</code> requiere ingresar contraseña de <b>root</b>. Se creará automáticamente un respaldo "
         "<code>.bak</code> antes de aplicar cambios. Lea la vista previa antes de aceptar.</i>",
         grpBootloader
     );
@@ -532,7 +573,7 @@ QWidget* MainWindow::createKernelTab() {
     bootBoxLayout->addWidget(m_bootloaderPreview);
 
     QHBoxLayout *bootActionRow = new QHBoxLayout();
-    m_btnRunBootloaderOnly = new QPushButton("Ejecutar solo actualización de Bootloader (como root)", grpBootloader);
+    m_btnRunBootloaderOnly = new QPushButton("Ejecutar solo actualización de Bootloader (requiere root)", grpBootloader);
     m_btnRunBootloaderOnly->setCursor(Qt::PointingHandCursor);
 
     m_btnRunFullKernelFlow = new QPushButton("Aplicar Configuración Completa (Kernel / initrd + Bootloader) como root", grpBootloader);
@@ -565,6 +606,8 @@ QWidget* MainWindow::createKernelTab() {
     connect(m_comboKernelVariant, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onKernelSelectionChanged);
 
+    connect(m_chkUnlockStorageParams, &QCheckBox::toggled, this, &MainWindow::onToggleUnlockStorageParams);
+
     connect(m_chkGenerateInitrd, &QCheckBox::toggled, this, &MainWindow::updateBootloaderPreview);
     connect(m_editRootDevice, &QLineEdit::textChanged, this, &MainWindow::updateBootloaderPreview);
     connect(m_editRootFs, &QLineEdit::textChanged, this, &MainWindow::updateBootloaderPreview);
@@ -578,6 +621,69 @@ QWidget* MainWindow::createKernelTab() {
     connect(m_btnRunFullKernelFlow, &QPushButton::clicked, this, &MainWindow::runFullKernelWorkflow);
 
     return scrollArea;
+}
+
+void MainWindow::onToggleUnlockStorageParams(bool checked) {
+    if (checked) {
+        QMessageBox::StandardButton resp = QMessageBox::warning(
+            this,
+            "¡ADVERTENCIA CRÍTICA DE SEGURIDAD!",
+            "Está a punto de desbloquear la edición manual de:\n"
+            "  • Partición Raíz (ej. /dev/sda2)\n"
+            "  • Sistema de Archivos (ej. ext4, reiserfs, xfs)\n"
+            "  • Módulos del Kernel y soporte udev\n\n"
+            "Si introduce un dispositivo o sistema de archivos incorrecto, Slackware NO podrá arrancar "
+            "y producirá un Kernel Panic.\n\n"
+            "¿Es usted un usuario avanzado y está seguro de querer habilitar estos campos?",
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No
+        );
+
+        if (resp != QMessageBox::Yes) {
+            m_chkUnlockStorageParams->blockSignals(true);
+            m_chkUnlockStorageParams->setChecked(false);
+            m_chkUnlockStorageParams->blockSignals(false);
+            return;
+        }
+    } else {
+        // Al volver a bloquear, restaurar automáticamente los valores seguros autodetectados
+        m_editRootDevice->setText(m_kernelInfo.rootDevice);
+        m_editRootFs->setText(m_kernelInfo.rootFsType);
+        m_editInitrdModules->setText(m_kernelInfo.recommendedModules);
+        m_chkIncludeUdev->setChecked(true);
+    }
+
+    m_editRootDevice->setEnabled(checked);
+    m_editRootFs->setEnabled(checked);
+    m_editInitrdModules->setEnabled(checked);
+    m_chkIncludeUdev->setEnabled(checked);
+    updateBootloaderPreview();
+}
+
+bool MainWindow::validateCriticalBootFields() {
+    QString rootDev = m_editRootDevice->text().trimmed();
+    QString rootFs = m_editRootFs->text().trimmed();
+
+    if (rootDev.isEmpty() || rootFs.isEmpty()) {
+        QMessageBox::critical(
+            this, "Configuración de Arranque Inválida",
+            "La partición raíz (-r) y el sistema de archivos (-f) no pueden estar vacíos.\n"
+            "Operación cancelada para proteger el arranque del sistema."
+        );
+        return false;
+    }
+
+    if (rootDev.startsWith("/dev/") && !QFile::exists(rootDev)) {
+        QMessageBox::critical(
+            this, "Dispositivo Inexistente Detectado",
+            QString("El dispositivo especificado '%1' NO existe en el sistema.\n\n"
+                    "Aplicar esta configuración dejaría el sistema sin arranque. "
+                    "Operación bloqueada.").arg(rootDev)
+        );
+        return false;
+    }
+
+    return true;
 }
 
 // ============================================================================
@@ -822,10 +928,10 @@ void MainWindow::scanKernelEnvironment() {
     }
     m_comboTargetKernel->blockSignals(false);
 
-    // Autocompletar campos de initrd con valores detectados
-    m_editRootDevice->setText(info.rootDevice);
-    m_editRootFs->setText(info.rootFsType);
-    if (!info.recommendedModules.isEmpty()) {
+    // Autocompletar campos protegidos de initrd con valores detectados
+    if (!m_chkUnlockStorageParams->isChecked()) {
+        m_editRootDevice->setText(info.rootDevice);
+        m_editRootFs->setText(info.rootFsType);
         m_editInitrdModules->setText(info.recommendedModules);
     }
 
@@ -879,9 +985,8 @@ void MainWindow::onKernelSelectionChanged() {
     if (idx >= 0) m_comboKernelVariant->setCurrentIndex(idx);
     m_comboKernelVariant->blockSignals(false);
 
-    // Actualizar módulos recomendados para la versión elegida si el campo está vacío
-    QString mods = detectRecommendedInitrdModules(targetVer);
-    if (!mods.isEmpty()) {
+    if (!m_chkUnlockStorageParams->isChecked()) {
+        QString mods = detectRecommendedInitrdModules(targetVer);
         m_editInitrdModules->setText(mods);
     }
 
@@ -968,7 +1073,6 @@ QString MainWindow::buildKernelExecutionScript(bool buildBzImage, bool buildInit
     cmds << "echo 'INICIANDO PROCESO DE KERNEL Y ARRANQUE COMO USUARIO ROOT'";
     cmds << "echo '===================================================================='";
 
-    // 1. Compilación de bzImage si fue seleccionada
     if (buildBzImage) {
         cmds << "echo '>>> [1/3] Compilando imagen bzImage y módulos desde /usr/src/linux...'";
         cmds << "cd /usr/src/linux";
@@ -979,7 +1083,6 @@ QString MainWindow::buildKernelExecutionScript(bool buildBzImage, bool buildInit
         cmds << QString("cp -v System.map /boot/System.map-custom-%1").arg(targetVer);
     }
 
-    // 2. Generación de initrd (siguiendo la lógica segura de make_initrd_new_kernel.sh)
     if (buildInitrd) {
         cmds << QString("echo '>>> Generando /boot/%1 para kernel %2...'").arg(initrdFileName, targetVer);
         QString mkinitrdCmd = QString("/sbin/mkinitrd -c -k '%1' -f '%2' -r '%3'")
@@ -998,7 +1101,6 @@ QString MainWindow::buildKernelExecutionScript(bool buildBzImage, bool buildInit
         cmds << QString("echo '>>> initrd generado correctamente: /boot/%1'").arg(initrdFileName);
     }
 
-    // 3. Actualización del Bootloader (ELILO, LILO o GRUB)
     if (updateBootloader) {
         bool attachInitrd = buildInitrd || QFile::exists("/boot/" + initrdFileName);
 
@@ -1093,9 +1195,9 @@ bool MainWindow::confirmRootKernelAction(const QString &actionTitle,
     QString rootBannerText = isAlreadyRoot
         ? "<b>ATENCIÓN (SESIÓN ROOT ACTIVA - UID 0):</b> Aunque ya ha iniciado sesión como usuario <b>root</b>, "
           "por seguridad debe revisar cuidadosamente cada configuración seleccionada antes de dar <b>Aceptar</b>."
-        : "<b>ATENCIÓN (SE REQUIEREN PRIVILEGIOS DE ROOT):</b> Los cambios seleccionados modifican el kernel y/o "
-          "el arranque del sistema y deben ser ejecutados por el usuario <b>root</b> (se solicitará contraseña vía <code>pkexec</code>). "
-          "Lea atentamente todas las configuraciones antes de dar <b>Aceptar</b>.";
+        : "<b>ATENCIÓN (SE EXIGE CONTRASEÑA DE ROOT):</b> Los cambios seleccionados modifican el kernel y/o "
+          "el arranque del sistema y <b>solo pueden ser ejecutados por el usuario root</b>. A continuación se le solicitará "
+          "la contraseña de <b>root</b> (si no la ingresa, no se realizará ninguna operación). Lea atentamente antes de dar <b>Aceptar</b>.";
 
     QLabel *lblTopWarn = new QLabel(rootBannerText, &dialog);
     lblTopWarn->setWordWrap(true);
@@ -1134,7 +1236,8 @@ bool MainWindow::confirmRootKernelAction(const QString &actionTitle,
 
     QHBoxLayout *btnRow = new QHBoxLayout();
     QPushButton *btnCancel = new QPushButton("Cancelar y revisar", &dialog);
-    QPushButton *btnAccept = new QPushButton("Aceptar y Ejecutar como root", &dialog);
+    QPushButton *btnAccept = new QPushButton("Aceptar e Ingresar Contraseña de root", &dialog);
+    if (isAlreadyRoot) btnAccept->setText("Aceptar y Ejecutar como root");
     btnAccept->setEnabled(false);
     btnAccept->setStyleSheet(
         "QPushButton { background-color: #c62828; color: white; font-weight: bold; padding: 7px 18px; border-radius: 4px; }"
@@ -1155,6 +1258,8 @@ bool MainWindow::confirmRootKernelAction(const QString &actionTitle,
 }
 
 void MainWindow::runGenerateInitrdOnly() {
+    if (!validateCriticalBootFields()) return;
+
     QString targetVer = m_comboTargetKernel->currentData().toString();
     QString rootDev = m_editRootDevice->text().trimmed();
     QString rootFs = m_editRootFs->text().trimmed();
@@ -1162,9 +1267,9 @@ void MainWindow::runGenerateInitrdOnly() {
 
     QStringList summary = {
         "• Operación: Generación exclusiva de imagen initrd",
-        "• Usuario ejecutor: root",
+        "• Usuario ejecutor: root (obligatorio)",
         "• Kernel objetivo: " + targetVer,
-        "• Partición raíz (-r): " + rootDev,
+        "• Partición raíz (-r): " + rootDev + (m_chkUnlockStorageParams->isChecked() ? " [Editado manualmente]" : " [Protegido/Autodetectado]"),
         "• Sistema de archivos (-f): " + rootFs,
         "• Módulos (-m): " + (modules.isEmpty() ? "(Autodetección)" : modules),
         "• Soporte udev (-u): " + QString(m_chkIncludeUdev->isChecked() ? "Sí" : "No"),
@@ -1184,15 +1289,18 @@ void MainWindow::runGenerateInitrdOnly() {
 }
 
 void MainWindow::runUpdateBootloaderOnly() {
+    if (!validateCriticalBootFields()) return;
+
     QString targetVer = m_comboTargetKernel->currentData().toString();
     QString variantData = m_comboKernelVariant->currentData().toString();
     QString kernelFileName = variantData.startsWith("BUILD_BZIMAGE:") ? variantData.mid(14) : variantData;
 
     QStringList summary = {
         "• Operación: Actualización exclusiva del Bootloader",
-        "• Usuario ejecutor: root",
+        "• Usuario ejecutor: root (obligatorio)",
         "• Bootloader detectado: " + m_kernelInfo.bootloaderType + " (" + m_kernelInfo.bootloaderConfigPath + ")",
         "• Kernel objetivo: " + targetVer + " (/boot/" + kernelFileName + ")",
+        "• Partición raíz configurada: " + m_editRootDevice->text().trimmed(),
         "• Respaldo automático (.bak): Activado",
         "• Conservar entrada anterior (Slackware-Prev): " + QString(m_chkKeepFallbackEntry->isChecked() ? "Sí" : "No")
     };
@@ -1211,6 +1319,8 @@ void MainWindow::runUpdateBootloaderOnly() {
 }
 
 void MainWindow::runFullKernelWorkflow() {
+    if (!validateCriticalBootFields()) return;
+
     QString targetVer = m_comboTargetKernel->currentData().toString();
     QString variantData = m_comboKernelVariant->currentData().toString();
     bool buildBzImage = variantData.startsWith("BUILD_BZIMAGE:");
@@ -1226,7 +1336,7 @@ void MainWindow::runFullKernelWorkflow() {
 
     QStringList summary = {
         "• Operación: Configuración completa de Kernel y Arranque",
-        "• Usuario ejecutor: root",
+        "• Usuario ejecutor: root (obligatorio)",
         "• Kernel objetivo: " + targetVer,
         "• Imagen de Kernel: " + kernelFileName + (buildBzImage ? " (Se compilará bzImage desde /usr/src/linux)" : " (Existente en /boot)"),
         "• Generar initrd: " + QString(buildInitrd ? "Sí (/boot/initrd-" + targetVer + ".gz)" : "No"),
@@ -1578,7 +1688,7 @@ void MainWindow::scanPendingUpgrades() {
 
         QPushButton *btnRemove = new QPushButton("Remove", cellWidget);
         btnRemove->setCursor(Qt::PointingHandCursor);
-        btnRemove->setToolTip(QString("Desinstalar %1").arg(item.installed));
+        btnRemove->setToolTip(QString("Desinstalar %1 (requiere contraseña de root)").arg(item.installed));
         btnRemove->setStyleSheet(
             "QPushButton { background-color: #ffebee; color: #c62828; border: 1px solid #ef9a9a; "
             "border-radius: 3px; padding: 2px 10px; font-weight: bold; font-size: 8.5pt; }"
@@ -1660,7 +1770,7 @@ void MainWindow::showPendingUpdatesDialog() {
 
     QHBoxLayout *btnRow = new QHBoxLayout();
     QPushButton *btnClose = new QPushButton("Cerrar", &dialog);
-    QPushButton *btnApplyNow = new QPushButton("Actualizar sistema ahora", &dialog);
+    QPushButton *btnApplyNow = new QPushButton("Actualizar sistema ahora (requiere root)", &dialog);
     btnApplyNow->setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold; padding: 6px 16px;");
 
     btnRow->addStretch();
@@ -1711,7 +1821,7 @@ void MainWindow::scanSboRepository() {
         m_sboStatusLabel->setStyleSheet("color: #c62828; font-weight: bold; padding: 6px;");
         m_sboStatusLabel->setText(
             "sbopkg no está instalado en tu sistema. Haz clic en 'Descargar e Instalar sbopkg (0.38.3)' "
-            "para instalarlo automáticamente y habilitar el repositorio de SlackBuilds.org."
+            "(requiere contraseña de root) para habilitar el repositorio de SlackBuilds.org."
         );
         m_sboTable->setRowCount(0);
         return;
@@ -1815,11 +1925,11 @@ void MainWindow::scanSboRepository() {
 
 void MainWindow::runInstallSbopkg() {
     QMessageBox::StandardButton reply = QMessageBox::question(
-        this, "Instalar sbopkg 0.38.3",
-        "Se descargará el paquete oficial desde GitHub y se instalará en tu sistema:\n\n"
+        this, "Instalar sbopkg 0.38.3 (Requiere root)",
+        "Se descargará el paquete oficial desde GitHub y se instalará en tu sistema como root:\n\n"
         "URL: https://github.com/sbopkg/sbopkg/releases/download/0.38.3/sbopkg-0.38.3-noarch-1_wsr.tgz\n"
         "Comando: installpkg sbopkg-0.38.3-noarch-1_wsr.tgz\n\n"
-        "¿Deseas continuar?",
+        "¿Deseas continuar e ingresar la contraseña de root?",
         QMessageBox::Yes | QMessageBox::No
     );
     if (reply != QMessageBox::Yes) return;
@@ -1837,7 +1947,7 @@ void MainWindow::runInstallSbopkg() {
     ).arg(tmpPkg, url);
 
     executePrivilegedCommand("/bin/sh", {"-c", cmd},
-                             "Descargando e instalando sbopkg 0.38.3 en segundo plano...");
+                             "Descargando e instalando sbopkg 0.38.3 como root...");
 }
 
 void MainWindow::filterSboTable() {
@@ -1980,11 +2090,11 @@ void MainWindow::onInstallSboClicked(const SboPackageInfo &pkg) {
     QString summaryText;
     if (buildQueue.size() == 1) {
         summaryText = QString("El paquete <b>%1 (%2)</b> tiene todas sus dependencias satisfechas.<br>"
-                              "Se compilará e instalará directamente mediante <code>sbopkg</code>:")
+                              "Se compilará e instalará como <b>root</b> mediante <code>sbopkg</code>:")
                           .arg(pkg.name, pkg.version);
     } else {
         summaryText = QString("Para instalar <b>%1 (%2)</b> se detectaron <b>%3 dependencia(s) faltante(s)</b>.<br>"
-                              "<code>sbopkg</code> compilará e instalará automáticamente la cola en este orden estricto:")
+                              "<code>sbopkg</code> (como <b>root</b>) compilará e instalará la cola en este orden estricto:")
                           .arg(pkg.name, pkg.version)
                           .arg(buildQueue.size() - 1);
     }
@@ -2012,7 +2122,7 @@ void MainWindow::onInstallSboClicked(const SboPackageInfo &pkg) {
 
     QHBoxLayout *btnRow = new QHBoxLayout();
     QPushButton *btnCancel = new QPushButton("Cancelar", &dialog);
-    QPushButton *btnBuild = new QPushButton("Compilar e Instalar Cola (sbopkg)", &dialog);
+    QPushButton *btnBuild = new QPushButton("Compilar e Instalar Cola (requiere root)", &dialog);
     btnBuild->setStyleSheet("background-color: #1565c0; color: white; font-weight: bold; padding: 6px 16px;");
 
     btnRow->addStretch();
@@ -2040,7 +2150,7 @@ void MainWindow::onInstallSboClicked(const SboPackageInfo &pkg) {
     ).arg(sqfContent.replace("'", "'\\''"), sqfName);
 
     executePrivilegedCommand("/bin/sh", {"-c", shellCmd},
-                             QString("Compilando e instalando %1 (%2 paquete(s) en cola)...").arg(pkg.name).arg(buildQueue.size()));
+                             QString("Compilando e instalando %1 como root (%2 paquete(s) en cola)...").arg(pkg.name).arg(buildQueue.size()));
 }
 
 void MainWindow::runSboSync() {
@@ -2054,11 +2164,11 @@ void MainWindow::runSboSync() {
         toggleConsole();
     }
 
-    executePrivilegedCommand("/usr/sbin/sbopkg", {"-r"}, "Sincronizando repositorio local de SlackBuilds.org...");
+    executePrivilegedCommand("/usr/sbin/sbopkg", {"-r"}, "Sincronizando repositorio local de SlackBuilds.org como root...");
 }
 
 // ============================================================================
-// EJECUCIÓN PRIVILEGIADA UNIFICADA (PROXY + PKEXEC)
+// EJECUCIÓN PRIVILEGIADA ESTRICTA (EXIGE CONTRASEÑA DE ROOT VIA PKEXEC)
 // ============================================================================
 
 void MainWindow::executePrivilegedCommand(const QString &binaryPath, const QStringList &args, const QString &statusMsg) {
@@ -2071,6 +2181,9 @@ void MainWindow::executePrivilegedCommand(const QString &binaryPath, const QStri
     QMap<QString, QString> proxyVars = loadProxyEnvironment();
     QStringList fullArgs;
 
+    // Forzamos explícitamente autenticación como usuario root (--user root)
+    fullArgs << "--user" << "root";
+
     if (!proxyVars.isEmpty()) {
         fullArgs << "/usr/bin/env";
         for (auto it = proxyVars.constBegin(); it != proxyVars.constEnd(); ++it) {
@@ -2080,52 +2193,56 @@ void MainWindow::executePrivilegedCommand(const QString &binaryPath, const QStri
 
     fullArgs << binaryPath << args;
     m_statusBanner->setText(statusMsg);
+    m_consoleOutput->append(">>> Solicitando autenticación obligatoria de usuario ROOT...\n");
     m_process->start("pkexec", fullArgs);
 }
 
 void MainWindow::runUpdate() {
     executePrivilegedCommand("/usr/sbin/slackpkg", {"-batch=on", "-default_answer=y", "update"},
-                             "Sincronizando listas oficiales con slackpkg...");
+                             "Sincronizando listas oficiales con slackpkg (root)...");
 }
 
 void MainWindow::runUpgradeAll() {
     if (m_confirmedUpdates.isEmpty()) return;
 
     QMessageBox::StandardButton reply = QMessageBox::question(
-        this, "Confirmar Actualización",
-        QString("¿Deseas instalar los %1 paquete(s) confirmados por slackpkg?").arg(m_confirmedUpdates.size()),
+        this, "Confirmar Actualización (Requiere root)",
+        QString("¿Deseas instalar los %1 paquete(s) confirmados por slackpkg?\n\n"
+                "Se solicitará la contraseña de root para realizar esta operación.").arg(m_confirmedUpdates.size()),
         QMessageBox::Yes | QMessageBox::No
     );
     if (reply == QMessageBox::Yes) {
         executePrivilegedCommand("/usr/sbin/slackpkg", {"-batch=on", "-default_answer=y", "upgrade-all"},
-                                 "Aplicando actualizaciones del sistema...");
+                                 "Aplicando actualizaciones del sistema como root...");
     }
 }
 
 void MainWindow::runCleanSystem() {
     QMessageBox::StandardButton reply = QMessageBox::question(
-        this, "Confirmar Limpieza",
-        "¡Atención! Esto eliminará paquetes que no estén en el árbol oficial (incluyendo paquetes SBo).\n¿Estás seguro?",
+        this, "Confirmar Limpieza (Requiere root)",
+        "¡Atención! Esto eliminará paquetes que no estén en el árbol oficial (incluyendo paquetes SBo).\n"
+        "Se solicitará la contraseña de root.\n\n¿Estás seguro?",
         QMessageBox::Yes | QMessageBox::No
     );
     if (reply == QMessageBox::Yes) {
         executePrivilegedCommand("/usr/sbin/slackpkg", {"-batch=on", "-default_answer=y", "clean-system"},
-                                 "Limpiando paquetes obsoletos...");
+                                 "Limpiando paquetes obsoletos como root...");
     }
 }
 
 void MainWindow::runRemovePackage(const QString &shortName, const QString &fullName) {
     QMessageBox::StandardButton reply = QMessageBox::warning(
-        this, "Eliminar Paquete",
+        this, "Eliminar Paquete (Requiere root)",
         QString("¿Estás seguro de que deseas desinstalar el siguiente paquete?\n\n"
                 "Paquete: %1\n"
-                "Comando: slackpkg remove %2").arg(fullName, shortName),
+                "Comando: slackpkg remove %2\n\n"
+                "Se exigirá la contraseña de root para proceder.").arg(fullName, shortName),
         QMessageBox::Yes | QMessageBox::No,
         QMessageBox::No
     );
     if (reply == QMessageBox::Yes) {
         executePrivilegedCommand("/usr/sbin/slackpkg", {"-batch=on", "-default_answer=y", "remove", shortName},
-                                 QString("Eliminando paquete %1...").arg(shortName));
+                                 QString("Eliminando paquete %1 como root...").arg(shortName));
     }
 }
 
@@ -2162,6 +2279,17 @@ void MainWindow::processFinished(int exitCode, QProcess::ExitStatus exitStatus) 
     Q_UNUSED(exitStatus);
     setUiEnabled(true);
     m_consoleOutput->append(QString("\n>>> Proceso finalizado (Código: %1)").arg(exitCode));
+
+    // Códigos 126 y 127 de pkexec indican cancelación o falla de autenticación root
+    if (exitCode == 126 || exitCode == 127) {
+        QMessageBox::warning(
+            this,
+            "Autenticación de ROOT Requerida",
+            "No se ingresó una contraseña de root válida o la solicitud fue cancelada.\n\n"
+            "Sin permisos de root, QSlackpkg opera únicamente en modo informativo y no realizará "
+            "ningún cambio en el sistema."
+        );
+    }
 
     bool hadPendingKernelBefore = m_kernelInfo.newKernelPendingConfig;
 
