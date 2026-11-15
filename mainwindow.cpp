@@ -17,6 +17,7 @@
 #include <QRegularExpression>
 #include <QNetworkProxy>
 #include <QUrl>
+#include <QDateTime>
 #include <QApplication>
 #include <QStyle>
 #include <QCollator>
@@ -118,11 +119,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     mainLayout->addWidget(bannerContainer);
 
     // ========================================================================
-    // 2. PESTAÑAS PRINCIPALES (Oficial | SlackBuilds | Kernel y Arranque)
+    // 2. PESTAÑAS PRINCIPALES (Oficial | SlackBuilds | AlienBOB | Kernel)
     // ========================================================================
     m_tabs = new QTabWidget(this);
     m_tabs->addTab(createOfficialTab(), "Sistema Oficial (slackpkg)");
     m_tabs->addTab(createSboTab(), "Repositorio SlackBuilds.org (sbopkg)");
+    m_tabs->addTab(createAlienTab(), "Repositorio AlienBOB (Binarios)");
     m_tabs->addTab(createKernelTab(), "Kernel y Arranque (initrd / Bootloader)");
     mainLayout->addWidget(m_tabs);
 
@@ -177,7 +179,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     connect(m_process, &QProcess::readyReadStandardOutput, this, &MainWindow::readProcessOutput);
     connect(m_process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
             this, &MainWindow::processFinished);
-    connect(m_netManager, &QNetworkAccessManager::finished, this, &MainWindow::onChangeLogDownloaded);
 
     m_checkTimer = new QTimer(this);
     connect(m_checkTimer, &QTimer::timeout, this, &MainWindow::checkUpdatesInBackground);
@@ -187,6 +188,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     scanKernelEnvironment();
     scanPendingUpgrades();
     scanSboRepository();
+    loadAlienCatalogFromCache();
     QTimer::singleShot(3000, this, &MainWindow::checkUpdatesInBackground);
 }
 
@@ -313,7 +315,111 @@ QWidget* MainWindow::createSboTab() {
 }
 
 // ============================================================================
-// PESTAÑA 3: KERNEL Y ARRANQUE (DIAGNÓSTICO, INITRD, BZIMAGE Y BOOTLOADER)
+// PESTAÑA 3: REPOSITORIO ALIENBOB (BINARIOS PRECOMPILADOS DE ERIC HAMELEERS)
+// ============================================================================
+
+QWidget* MainWindow::createAlienTab() {
+    QWidget *tab = new QWidget(this);
+    QVBoxLayout *layout = new QVBoxLayout(tab);
+
+    // Barra superior de controles (amigable para noveles y completa para avanzados)
+    QHBoxLayout *topBar = new QHBoxLayout();
+
+    m_btnAlienSync = new QPushButton("Sincronizar catálogo AlienBOB", this);
+    m_btnAlienSync->setCursor(Qt::PointingHandCursor);
+    m_btnAlienSync->setStyleSheet(
+        "QPushButton { background-color: #1565c0; color: white; font-weight: bold; "
+        "padding: 6px 14px; border-radius: 4px; }"
+        "QPushButton:hover { background-color: #0d47a1; }"
+    );
+
+    QLabel *lblBranch = new QLabel("Rama / Arq.:", this);
+    m_comboAlienBranch = new QComboBox(this);
+    m_comboAlienBranch->setMinimumWidth(165);
+    m_comboAlienBranch->setToolTip(
+        "Filtro automático según su versión de Slackware y arquitectura.\n"
+        "Usuarios avanzados pueden explorar otras ramas si lo desean."
+    );
+    QString detectedBranch = detectAlienTargetBranch();
+    m_comboAlienBranch->addItem(QString("%1 (Detectada)").arg(detectedBranch), detectedBranch);
+    if (detectedBranch != "pkg64/15.0") m_comboAlienBranch->addItem("pkg64/15.0", "pkg64/15.0");
+    if (detectedBranch != "pkg64/current") m_comboAlienBranch->addItem("pkg64/current", "pkg64/current");
+    if (detectedBranch != "pkg/15.0") m_comboAlienBranch->addItem("pkg/15.0", "pkg/15.0");
+    if (detectedBranch != "pkg/current") m_comboAlienBranch->addItem("pkg/current", "pkg/current");
+    m_comboAlienBranch->addItem("Todas las ramas", "");
+
+    QLabel *lblSearch = new QLabel("Buscar:", this);
+    m_editAlienSearch = new QLineEdit(this);
+    m_editAlienSearch->setPlaceholderText("Ej: vlc, libreoffice, chromium, wine, obs-studio, calibre...");
+    m_editAlienSearch->setClearButtonEnabled(true);
+
+    m_chkAlienInstalledOnly = new QCheckBox("Solo instalados", this);
+    m_chkAlienUpdatesOnly = new QCheckBox("Solo con actualización", this);
+
+    topBar->addWidget(m_btnAlienSync);
+    topBar->addSpacing(10);
+    topBar->addWidget(lblBranch);
+    topBar->addWidget(m_comboAlienBranch);
+    topBar->addSpacing(10);
+    topBar->addWidget(lblSearch);
+    topBar->addWidget(m_editAlienSearch);
+    topBar->addWidget(m_chkAlienInstalledOnly);
+    topBar->addWidget(m_chkAlienUpdatesOnly);
+    layout->addLayout(topBar);
+
+    // Nota informativa amigable para noveles y detalle técnico para avanzados
+    QLabel *lblAlienHint = new QLabel(
+        "<b>Paquetes binarios precompilados (AlienBOB):</b> Listos para instalar en segundos sin compilar código fuente. "
+        "Cada descarga verifica automáticamente su suma <code>.md5</code> oficial y solicita contraseña de <b>root</b> antes de instalar o eliminar. "
+        "<i>(Pase el cursor sobre un paquete para ver su ruta exacta y dependencias).</i>",
+        this
+    );
+    lblAlienHint->setWordWrap(true);
+    lblAlienHint->setStyleSheet(
+        "background-color: #e3f2fd; color: #0d47a1; border: 1px solid #90caf9; "
+        "border-radius: 4px; padding: 6px 10px; font-size: 9pt;"
+    );
+    layout->addWidget(lblAlienHint);
+
+    m_alienStatusLabel = new QLabel("Analizando caché local del repositorio AlienBOB...", this);
+    m_alienStatusLabel->setStyleSheet("color: #37474f; font-weight: bold; padding: 4px;");
+    layout->addWidget(m_alienStatusLabel);
+
+    m_alienTable = new QTableWidget(0, 7, tab);
+    m_alienTable->setHorizontalHeaderLabels({
+        "Paquete",
+        "Rama / Arq.",
+        "Versión Instalada",
+        "Versión AlienBOB",
+        "Tamaño",
+        "Descripción",
+        "Acciones"
+    });
+    m_alienTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    m_alienTable->horizontalHeader()->setSectionResizeMode(5, QHeaderView::Stretch);
+    m_alienTable->setColumnWidth(0, 165);
+    m_alienTable->setColumnWidth(1, 105);
+    m_alienTable->setColumnWidth(2, 185);
+    m_alienTable->setColumnWidth(3, 145);
+    m_alienTable->setColumnWidth(4, 85);
+    m_alienTable->setColumnWidth(6, 185);
+    m_alienTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_alienTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_alienTable->setAlternatingRowColors(true);
+    layout->addWidget(m_alienTable);
+
+    connect(m_btnAlienSync, &QPushButton::clicked, this, &MainWindow::runAlienSync);
+    connect(m_comboAlienBranch, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::filterAlienTable);
+    connect(m_editAlienSearch, &QLineEdit::textChanged, this, &MainWindow::filterAlienTable);
+    connect(m_chkAlienInstalledOnly, &QCheckBox::toggled, this, &MainWindow::filterAlienTable);
+    connect(m_chkAlienUpdatesOnly, &QCheckBox::toggled, this, &MainWindow::filterAlienTable);
+
+    return tab;
+}
+
+// ============================================================================
+// PESTAÑA 4: KERNEL Y ARRANQUE (DIAGNÓSTICO, INITRD, BZIMAGE Y BOOTLOADER)
 // ============================================================================
 
 QWidget* MainWindow::createKernelTab() {
@@ -1475,7 +1581,10 @@ void MainWindow::checkUpdatesInBackground() {
     QUrl url(mirror + "ChangeLog.txt");
     QNetworkRequest request(url);
     request.setRawHeader("Range", "bytes=0-2048");
-    m_netManager->get(request);
+    QNetworkReply *reply = m_netManager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        onChangeLogDownloaded(reply);
+    });
 }
 
 void MainWindow::onChangeLogDownloaded(QNetworkReply *reply) {
@@ -2168,6 +2277,434 @@ void MainWindow::runSboSync() {
 }
 
 // ============================================================================
+// MOTOR REPOSITORIO ALIENBOB (DESCARGA, PARSEO, INSTALACIÓN, ACTUALIZACIÓN, REMOVE)
+// ============================================================================
+
+QString MainWindow::detectAlienTargetBranch() const {
+    QString arch = QSysInfo::currentCpuArchitecture();
+    bool is64 = (arch.contains("64") || arch == "x86_64");
+    QString pkgPrefix = is64 ? "pkg64" : "pkg";
+
+    QString verTag = "15.0";
+    QFile verFile("/etc/slackware-version");
+    if (verFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QString content = QString::fromUtf8(verFile.readAll()).trimmed();
+        verFile.close();
+        if (content.contains('+') || content.contains("current", Qt::CaseInsensitive)) {
+            verTag = "current";
+        } else {
+            QRegularExpression rx("(\\d+\\.\\d+)");
+            QRegularExpressionMatch m = rx.match(content);
+            if (m.hasMatch()) {
+                verTag = m.captured(1);
+            }
+        }
+    }
+    return QString("%1/%2").arg(pkgPrefix, verTag);
+}
+
+QString MainWindow::getAlienCacheFilePath() const {
+    QString cacheDir = QDir::homePath() + "/.cache/qslackpkg";
+    QDir().mkpath(cacheDir);
+    return cacheDir + "/alien_PACKAGES.TXT";
+}
+
+void MainWindow::loadAlienCatalogFromCache() {
+    QString cachePath = getAlienCacheFilePath();
+    QFile file(cachePath);
+    if (!file.exists() || !file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        m_alienCatalog.clear();
+        m_alienTable->setRowCount(0);
+        m_alienStatusLabel->setStyleSheet("color: #ef6c00; font-weight: bold; padding: 4px;");
+        m_alienStatusLabel->setText(
+            "Catálogo AlienBOB aún no sincronizado. Pulsa 'Sincronizar catálogo AlienBOB' "
+            "(no requiere contraseña de root) para descargar la lista de paquetes binarios."
+        );
+        return;
+    }
+
+    QString content = QString::fromUtf8(file.readAll());
+    file.close();
+    parseAlienPackagesIndex(content);
+}
+
+void MainWindow::runAlienSync() {
+    m_btnAlienSync->setEnabled(false);
+    m_alienStatusLabel->setStyleSheet("color: #1565c0; font-weight: bold; padding: 4px;");
+    m_alienStatusLabel->setText("Descargando índice PACKAGES.TXT desde slackware.com/~alien/slackbuilds/...");
+
+    QUrl url(m_alienBaseUrl + "PACKAGES.TXT");
+    QNetworkRequest request(url);
+    request.setHeader(QNetworkRequest::UserAgentHeader, "QSlackpkg/1.0 (Slackware Linux)");
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+
+    QNetworkReply *reply = m_netManager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        m_btnAlienSync->setEnabled(true);
+
+        if (reply->error() != QNetworkReply::NoError) {
+            m_alienStatusLabel->setStyleSheet("color: #c62828; font-weight: bold; padding: 4px;");
+            m_alienStatusLabel->setText(
+                QString("Error al sincronizar catálogo AlienBOB: %1").arg(reply->errorString())
+            );
+            reply->deleteLater();
+            return;
+        }
+
+        QByteArray rawData = reply->readAll();
+        QString content = QString::fromUtf8(rawData);
+        reply->deleteLater();
+
+        if (!content.contains("PACKAGE NAME:")) {
+            m_alienStatusLabel->setStyleSheet("color: #c62828; font-weight: bold; padding: 4px;");
+            m_alienStatusLabel->setText("La respuesta recibida de AlienBOB no contiene un índice PACKAGES.TXT válido.");
+            return;
+        }
+
+        QFile cacheFile(getAlienCacheFilePath());
+        if (cacheFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            cacheFile.write(rawData);
+            cacheFile.close();
+        }
+
+        parseAlienPackagesIndex(content);
+    });
+}
+
+void MainWindow::parseAlienPackagesIndex(const QString &indexContent) {
+    m_alienCatalog.clear();
+
+    // Mapear paquetes instalados actualmente en /var/log/packages
+    QMap<QString, QString> installedFullMap;
+    QMap<QString, QString> installedVerMap;
+    QMap<QString, QString> installedBuildMap;
+    QDir pkgDir("/var/log/packages");
+    for (const QString &fileName : pkgDir.entryList(QDir::Files)) {
+        QStringList parts = fileName.split('-');
+        if (parts.size() >= 4) {
+            QString shortName = parts.mid(0, parts.size() - 3).join('-');
+            QString version = parts[parts.size() - 3];
+            QString build = parts.last();
+            installedFullMap.insert(shortName, fileName);
+            installedVerMap.insert(shortName, version);
+            installedBuildMap.insert(shortName, build);
+        }
+    }
+
+    auto finalizeEntry = [&](AlienPackageInfo &entry) {
+        if (entry.name.isEmpty() || entry.fileName.isEmpty()) return;
+        if (installedFullMap.contains(entry.name)) {
+            entry.installedFull = installedFullMap.value(entry.name);
+            QString instVer = installedVerMap.value(entry.name);
+            QString instBuild = installedBuildMap.value(entry.name);
+            if (instBuild.endsWith("alien", Qt::CaseInsensitive) &&
+                (instVer != entry.version || instBuild != entry.build)) {
+                entry.hasUpdate = true;
+            }
+        }
+        m_alienCatalog.append(entry);
+    };
+
+    QStringList lines = indexContent.split('\n');
+    AlienPackageInfo current;
+    bool inDescription = false;
+
+    for (const QString &rawLine : lines) {
+        QString line = rawLine;
+        if (line.endsWith('\r')) line.chop(1);
+
+        if (line.startsWith("PACKAGE NAME:")) {
+            if (!current.name.isEmpty()) {
+                finalizeEntry(current);
+            }
+            current = AlienPackageInfo();
+            inDescription = false;
+
+            current.fileName = line.mid(13).trimmed();
+            QString baseName = current.fileName;
+            if (baseName.endsWith(".txz") || baseName.endsWith(".tgz") ||
+                baseName.endsWith(".tlz") || baseName.endsWith(".tbz")) {
+                baseName.chop(4);
+            }
+            QStringList parts = baseName.split('-');
+            if (parts.size() >= 4) {
+                current.build = parts.last();
+                current.arch = parts[parts.size() - 2];
+                current.version = parts[parts.size() - 3];
+                current.name = parts.mid(0, parts.size() - 3).join('-');
+            }
+        } else if (line.startsWith("PACKAGE LOCATION:")) {
+            QString loc = line.mid(17).trimmed();
+            if (loc.startsWith("./")) loc = loc.mid(2);
+            while (loc.startsWith('/')) loc = loc.mid(1);
+            while (loc.endsWith('/')) loc.chop(1);
+            current.location = loc;
+
+            QStringList locParts = loc.split('/', Qt::SkipEmptyParts);
+            if (locParts.size() >= 2) {
+                current.branchTag = locParts[locParts.size() - 2] + "/" + locParts[locParts.size() - 1];
+            }
+        } else if (line.startsWith("PACKAGE SIZE (compressed):")) {
+            current.compressedSize = line.mid(26).trimmed();
+        } else if (line.startsWith("PACKAGE REQUIRED:")) {
+            current.requiredDeps = line.mid(17).trimmed();
+        } else if (line.startsWith("PACKAGE DESCRIPTION:")) {
+            inDescription = true;
+        } else if (line.trimmed().isEmpty()) {
+            if (!current.name.isEmpty()) {
+                finalizeEntry(current);
+                current = AlienPackageInfo();
+            }
+            inDescription = false;
+        } else if (inDescription && !current.name.isEmpty() && current.shortDesc.isEmpty()) {
+            QString prefix = current.name + ":";
+            if (line.startsWith(prefix)) {
+                QString descText = line.mid(prefix.length()).trimmed();
+                if (!descText.isEmpty()) {
+                    current.shortDesc = descText;
+                }
+            }
+        }
+    }
+
+    if (!current.name.isEmpty()) {
+        finalizeEntry(current);
+    }
+
+    QFileInfo cacheInfo(getAlienCacheFilePath());
+    QString syncDateStr = cacheInfo.exists()
+        ? cacheInfo.lastModified().toString("dd/MM/yyyy HH:mm")
+        : "Recién descargado";
+
+    QString targetBranch = m_comboAlienBranch->currentData().toString();
+    int branchPkgCount = 0;
+    int branchUpdatesCount = 0;
+    for (const AlienPackageInfo &pkg : m_alienCatalog) {
+        if (targetBranch.isEmpty() || pkg.branchTag == targetBranch) {
+            branchPkgCount++;
+            if (pkg.hasUpdate) branchUpdatesCount++;
+        }
+    }
+
+    m_alienStatusLabel->setStyleSheet("color: #0d47a1; font-weight: bold; padding: 4px;");
+    m_alienStatusLabel->setText(
+        QString("Catálogo AlienBOB listo (%1): %2 binarios disponibles en rama seleccionada (%3 total) | Actualizaciones AlienBOB: %4")
+            .arg(syncDateStr)
+            .arg(branchPkgCount)
+            .arg(m_alienCatalog.size())
+            .arg(branchUpdatesCount)
+    );
+
+    filterAlienTable();
+}
+
+void MainWindow::filterAlienTable() {
+    QString selectedBranch = m_comboAlienBranch->currentData().toString();
+    QString searchQuery = m_editAlienSearch->text().trimmed();
+    bool onlyInstalled = m_chkAlienInstalledOnly->isChecked();
+    bool onlyUpdates = m_chkAlienUpdatesOnly->isChecked();
+
+    m_alienTable->setUpdatesEnabled(false);
+    m_alienTable->setRowCount(0);
+
+    int maxVisible = (selectedBranch.isEmpty() && searchQuery.isEmpty() && !onlyInstalled && !onlyUpdates) ? 500 : 2500;
+    int shown = 0;
+
+    for (const AlienPackageInfo &pkg : m_alienCatalog) {
+        if (!selectedBranch.isEmpty() && pkg.branchTag != selectedBranch) continue;
+        if (onlyInstalled && pkg.installedFull.isEmpty()) continue;
+        if (onlyUpdates && !pkg.hasUpdate) continue;
+        if (!searchQuery.isEmpty() &&
+            !pkg.name.contains(searchQuery, Qt::CaseInsensitive) &&
+            !pkg.shortDesc.contains(searchQuery, Qt::CaseInsensitive)) {
+            continue;
+        }
+
+        if (shown >= maxVisible) break;
+        shown++;
+
+        int row = m_alienTable->rowCount();
+        m_alienTable->insertRow(row);
+
+        QString pkgUrl = m_alienBaseUrl + pkg.location + "/" + pkg.fileName;
+        QString detailTooltip = QString(
+            "Archivo: %1\n"
+            "Ubicación: %2\n"
+            "URL: %3\n"
+            "Dependencias declaradas: %4"
+        ).arg(pkg.fileName,
+              pkg.location,
+              pkgUrl,
+              pkg.requiredDeps.isEmpty() ? "Ninguna especificada" : pkg.requiredDeps);
+
+        QTableWidgetItem *nameItem = new QTableWidgetItem(pkg.name);
+        QFont boldName = nameItem->font();
+        boldName.setBold(true);
+        nameItem->setFont(boldName);
+        nameItem->setToolTip(detailTooltip);
+
+        QTableWidgetItem *branchItem = new QTableWidgetItem(pkg.branchTag);
+        branchItem->setForeground(QColor("#546e7a"));
+
+        QTableWidgetItem *instItem = new QTableWidgetItem(
+            pkg.installedFull.isEmpty() ? "No instalado" : pkg.installedFull
+        );
+        QTableWidgetItem *verItem = new QTableWidgetItem(
+            QString("%1 (%2)").arg(pkg.version, pkg.build)
+        );
+        QTableWidgetItem *sizeItem = new QTableWidgetItem(pkg.compressedSize);
+        sizeItem->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+
+        QTableWidgetItem *descItem = new QTableWidgetItem(pkg.shortDesc);
+        descItem->setToolTip(detailTooltip);
+
+        if (!pkg.installedFull.isEmpty()) {
+            instItem->setForeground(QColor("#1b5e20"));
+            instItem->setBackground(QColor("#e8f5e9"));
+        } else {
+            instItem->setForeground(QColor("#757575"));
+        }
+
+        if (pkg.hasUpdate) {
+            verItem->setBackground(QColor("#ffe0b2"));
+            verItem->setForeground(QColor("#e65100"));
+            verItem->setFont(boldName);
+        }
+
+        m_alienTable->setItem(row, 0, nameItem);
+        m_alienTable->setItem(row, 1, branchItem);
+        m_alienTable->setItem(row, 2, instItem);
+        m_alienTable->setItem(row, 3, verItem);
+        m_alienTable->setItem(row, 4, sizeItem);
+        m_alienTable->setItem(row, 5, descItem);
+
+        // Celda de acciones: Instalar/Actualizar/Reinstalar + Remove (si está instalado)
+        QWidget *cellWidget = new QWidget(m_alienTable);
+        QHBoxLayout *cellLayout = new QHBoxLayout(cellWidget);
+        cellLayout->setContentsMargins(4, 2, 4, 2);
+        cellLayout->setSpacing(4);
+
+        QString btnText = "Instalar";
+        QString btnStyle = "QPushButton { background-color: #e3f2fd; color: #0d47a1; border: 1px solid #90caf9; "
+                           "border-radius: 3px; padding: 2px 8px; font-weight: bold; font-size: 8.5pt; }"
+                           "QPushButton:hover { background-color: #1565c0; color: white; }";
+
+        if (pkg.hasUpdate) {
+            btnText = "Actualizar";
+            btnStyle = "QPushButton { background-color: #fff3e0; color: #e65100; border: 1px solid #ffb74d; "
+                       "border-radius: 3px; padding: 2px 8px; font-weight: bold; font-size: 8.5pt; }"
+                       "QPushButton:hover { background-color: #ef6c00; color: white; }";
+        } else if (!pkg.installedFull.isEmpty()) {
+            btnText = "Reinstalar";
+            btnStyle = "QPushButton { background-color: #f5f5f5; color: #424242; border: 1px solid #bdbdbd; "
+                       "border-radius: 3px; padding: 2px 8px; font-size: 8.5pt; }"
+                       "QPushButton:hover { background-color: #616161; color: white; }";
+        }
+
+        QPushButton *btnInstall = new QPushButton(btnText, cellWidget);
+        btnInstall->setCursor(Qt::PointingHandCursor);
+        btnInstall->setStyleSheet(btnStyle);
+        connect(btnInstall, &QPushButton::clicked, this, [this, pkg]() {
+            onInstallAlienClicked(pkg);
+        });
+        cellLayout->addWidget(btnInstall);
+
+        if (!pkg.installedFull.isEmpty()) {
+            QPushButton *btnRemove = new QPushButton("Remove", cellWidget);
+            btnRemove->setCursor(Qt::PointingHandCursor);
+            btnRemove->setToolTip(QString("Desinstalar %1 (requiere root)").arg(pkg.installedFull));
+            btnRemove->setStyleSheet(
+                "QPushButton { background-color: #ffebee; color: #c62828; border: 1px solid #ef9a9a; "
+                "border-radius: 3px; padding: 2px 8px; font-weight: bold; font-size: 8.5pt; }"
+                "QPushButton:hover { background-color: #c62828; color: white; }"
+            );
+            connect(btnRemove, &QPushButton::clicked, this, [this, pkg]() {
+                onRemoveAlienClicked(pkg);
+            });
+            cellLayout->addWidget(btnRemove);
+        }
+
+        m_alienTable->setCellWidget(row, 6, cellWidget);
+    }
+
+    m_alienTable->setUpdatesEnabled(true);
+}
+
+void MainWindow::onInstallAlienClicked(const AlienPackageInfo &pkg) {
+    QString pkgUrl = m_alienBaseUrl + pkg.location + "/" + pkg.fileName;
+    QString md5Url = pkgUrl + ".md5";
+
+    QString depsNote = pkg.requiredDeps.isEmpty()
+        ? "Ninguna adicional especificada"
+        : pkg.requiredDeps;
+
+    QMessageBox::StandardButton reply = QMessageBox::question(
+        this,
+        QString("Instalar / Actualizar desde AlienBOB - %1").arg(pkg.name),
+        QString("Se descargará e instalará el siguiente paquete binario como <b>root</b>:\n\n"
+                "• Paquete: %1\n"
+                "• Rama / Arquitectura: %2\n"
+                "• Tamaño comprimido: %3\n"
+                "• Dependencias declaradas: %4\n"
+                "• Origen: %5\n\n"
+                "Antes de instalar, se verificará automáticamente la integridad con md5sum.\n"
+                "¿Deseas continuar e ingresar la contraseña de root?")
+            .arg(pkg.fileName, pkg.branchTag, pkg.compressedSize, depsNote, pkgUrl),
+        QMessageBox::Yes | QMessageBox::No
+    );
+    if (reply != QMessageBox::Yes) return;
+
+    if (!m_btnToggleConsole->isChecked()) {
+        m_btnToggleConsole->setChecked(true);
+        toggleConsole();
+    }
+
+    QString cmd = QString(
+        "set -e; "
+        "TMPD=$(mktemp -d /tmp/qslackpkg_alien.XXXXXX); "
+        "trap 'rm -rf \"$TMPD\"' EXIT; "
+        "cd \"$TMPD\"; "
+        "echo '>>> Descargando paquete binario desde AlienBOB...'; "
+        "wget -O '%1' '%2'; "
+        "echo '>>> Verificando firma MD5...'; "
+        "if wget -q -O '%1.md5' '%3'; then "
+        "  md5sum -c '%1.md5'; "
+        "else "
+        "  echo 'AVISO: Archivo .md5 no disponible en servidor, continuando...'; "
+        "fi; "
+        "echo '>>> Instalando / actualizando paquete en el sistema...'; "
+        "/sbin/upgradepkg --install-new '%1'"
+    ).arg(pkg.fileName, pkgUrl, md5Url);
+
+    executePrivilegedCommand("/bin/sh", {"-c", cmd},
+                             QString("Descargando e instalando %1 desde AlienBOB como root...").arg(pkg.name));
+}
+
+void MainWindow::onRemoveAlienClicked(const AlienPackageInfo &pkg) {
+    if (pkg.installedFull.isEmpty()) return;
+
+    QMessageBox::StandardButton reply = QMessageBox::warning(
+        this,
+        "Eliminar Paquete (Requiere root)",
+        QString("¿Estás seguro de que deseas desinstalar el siguiente paquete?\n\n"
+                "Paquete instalado: %1\n"
+                "Comando: /sbin/removepkg %1\n\n"
+                "Se exigirá la contraseña de root para proceder.").arg(pkg.installedFull),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No
+    );
+    if (reply != QMessageBox::Yes) return;
+
+    if (!m_btnToggleConsole->isChecked()) {
+        m_btnToggleConsole->setChecked(true);
+        toggleConsole();
+    }
+
+    executePrivilegedCommand("/sbin/removepkg", {pkg.installedFull},
+                             QString("Eliminando paquete %1 como root...").arg(pkg.installedFull));
+}
+
+// ============================================================================
 // EJECUCIÓN PRIVILEGIADA ESTRICTA (EXIGE CONTRASEÑA DE ROOT VIA PKEXEC)
 // ============================================================================
 
@@ -2296,9 +2833,10 @@ void MainWindow::processFinished(int exitCode, QProcess::ExitStatus exitStatus) 
     scanKernelEnvironment();
     scanPendingUpgrades();
     scanSboRepository();
+    loadAlienCatalogFromCache();
 
     if (!hadPendingKernelBefore && m_kernelInfo.newKernelPendingConfig) {
-        m_tabs->setCurrentIndex(2);
+        m_tabs->setCurrentIndex(3);
         m_trayIcon->showMessage(
             "¡Nuevo Kernel instalado!",
             QString("Se detectó el kernel %1. Genere initrd y actualice %2 antes de reiniciar.")
@@ -2313,8 +2851,10 @@ void MainWindow::setUiEnabled(bool enabled) {
     m_btnClean->setEnabled(enabled);
     m_btnInstallSbopkg->setEnabled(enabled && !QFile::exists("/usr/sbin/sbopkg"));
     m_btnSboSync->setEnabled(enabled && QFile::exists("/usr/sbin/sbopkg"));
+    m_btnAlienSync->setEnabled(enabled);
     m_packageTable->setEnabled(enabled);
     m_sboTable->setEnabled(enabled);
+    m_alienTable->setEnabled(enabled);
 
     m_btnRescanKernel->setEnabled(enabled);
     m_btnRunInitrdOnly->setEnabled(enabled);

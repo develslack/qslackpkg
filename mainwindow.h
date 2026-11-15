@@ -21,6 +21,7 @@
 #include <QGroupBox>
 #include <QMap>
 #include <QSet>
+#include <QList>
 
 enum TrayState {
     StateUpToDate,
@@ -41,6 +42,21 @@ struct SboPackageInfo {
     QString shortDesc;
     QStringList requires;
     QString installedFull;
+    bool hasUpdate = false;
+};
+
+struct AlienPackageInfo {
+    QString name;           // Ej: vlc
+    QString version;        // Ej: 3.0.21
+    QString arch;           // Ej: x86_64
+    QString build;          // Ej: 1alien
+    QString fileName;       // Ej: vlc-3.0.21-x86_64-1alien.txz
+    QString location;       // Ej: vlc/pkg64/15.0
+    QString branchTag;      // Ej: pkg64/15.0
+    QString compressedSize; // Ej: 48120 K
+    QString requiredDeps;   // Dependencias declaradas en PACKAGES.TXT
+    QString shortDesc;      // Descripción corta
+    QString installedFull;  // Vacío si no está instalado
     bool hasUpdate = false;
 };
 
@@ -92,6 +108,12 @@ private slots:
     void filterSboTable();
     void onInstallSboClicked(const SboPackageInfo &pkg);
 
+    // AlienBOB slots (Repositorio de binarios de Eric Hameleers)
+    void runAlienSync();
+    void filterAlienTable();
+    void onInstallAlienClicked(const AlienPackageInfo &pkg);
+    void onRemoveAlienClicked(const AlienPackageInfo &pkg);
+
     // Kernel & Bootloader slots
     void scanKernelEnvironment();
     void onKernelSelectionChanged();
@@ -114,6 +136,7 @@ private:
     void updateTrayIconState(TrayState state, int count);
     QWidget* createOfficialTab();
     QWidget* createSboTab();
+    QWidget* createAlienTab();
     QWidget* createKernelTab();
 
     void executePrivilegedCommand(const QString &binaryPath, const QStringList &args, const QString &statusMsg);
@@ -129,6 +152,12 @@ private:
                               const QMap<QString, QString> &installedMap,
                               QSet<QString> &visited,
                               QStringList &orderedBuildList);
+
+    // Helpers de AlienBOB
+    void loadAlienCatalogFromCache();
+    void parseAlienPackagesIndex(const QString &indexContent);
+    QString detectAlienTargetBranch() const;
+    QString getAlienCacheFilePath() const;
 
     // Helpers de Kernel y Bootloader
     QString detectRecommendedInitrdModules(const QString &kernelVer);
@@ -167,6 +196,15 @@ private:
     QLineEdit *m_editSboSearch;
     QCheckBox *m_chkSboUpdatesOnly;
     QTableWidget *m_sboTable;
+
+    // UI Pestaña Repositorio AlienBOB
+    QLabel *m_alienStatusLabel;
+    QPushButton *m_btnAlienSync;
+    QComboBox *m_comboAlienBranch;
+    QLineEdit *m_editAlienSearch;
+    QCheckBox *m_chkAlienInstalledOnly;
+    QCheckBox *m_chkAlienUpdatesOnly;
+    QTableWidget *m_alienTable;
 
     // UI Pestaña Kernel y Arranque
     QWidget *m_kernelAlertCard;
@@ -207,6 +245,8 @@ private:
     // Datos en memoria
     QList<PendingUpdateItem> m_confirmedUpdates;
     QMap<QString, SboPackageInfo> m_sboCatalog;
+    QList<AlienPackageInfo> m_alienCatalog;
+    const QString m_alienBaseUrl = "http://www.slackware.com/~alien/slackbuilds/";
     KernelEnvironmentInfo m_kernelInfo;
 
     // Tray Icon
