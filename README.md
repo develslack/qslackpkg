@@ -1,28 +1,47 @@
-# QSlackpkg — Centro de Software y Gestor Visual de Actualizaciones para Slackware
+# QSlackpkg — Centro de Software, Repositorios y Gestor de Kernel para Slackware
 
-**QSlackpkg** es una interfaz gráfica nativa desarrollada en **C++ y Qt5** diseñada para modernizar y simplificar la administración de paquetes en **Slackware Linux** (15.0 / -current), manteniendo intacta la filosofía, solidez y herramientas oficiales de la distribución.
+**QSlackpkg** es una interfaz gráfica nativa desarrollada en **C++ y Qt5** diseñada para modernizar y simplificar la administración integral de paquetes, repositorios de terceros y configuración del arranque/kernel en **Slackware Linux** (15.0 / -current), manteniendo intacta la filosofía, solidez y herramientas oficiales de la distribución.
 
-Está pensada tanto para veteranos de Slackware que desean un monitor silencioso en la bandeja del sistema, como para usuarios provenientes de distribuciones como **Linux Mint** o **Ubuntu** que buscan instalar software y resolver dependencias sin tener que gestionar manualmente scripts y colas en la terminal.
+Está pensada tanto para veteranos de Slackware que desean un monitor silencioso en la bandeja del sistema con control total sobre cada comando ejecutado, como para usuarios provenientes de distribuciones como **Linux Mint** o **Ubuntu** que buscan instalar software, resolver dependencias o actualizar el kernel sin riesgo a dejar el sistema sin arranque.
 
 ---
 
 ## Características Principales
 
-### 1. Gestión del Sistema Oficial (`slackpkg`)
+### 1. Gestión del Sistema Oficial (`slackpkg`) y Herramientas de Mantenimiento
 * **Sincronización exacta:** Consulta directamente el motor de `slackpkg` para garantizar 100% de coincidencia entre la interfaz gráfica y la terminal.
-* **Vista estructurada en 6 columnas:** Diferencia claramente el nombre del paquete, el paquete base de la rama principal (`slackware64`), los paquetes compilados desde SlackBuilds (`_SBo`), la versión instalada actualmente (resaltada en verde cuando está al día) y las actualizaciones disponibles.
-* **Desinstalación directa:** Incluye un botón `Remove` por cada paquete instalado (`slackpkg remove <paquete>`) con confirmación de seguridad.
-* **Monitor en segundo plano (Tray Icon):** Al cerrar la ventana, la aplicación permanece minimizada en la bandeja del sistema verificando periódicamente el `ChangeLog.txt` del mirror configurado y notificando mediante popups cuando existen nuevas actualizaciones (con conteo visual en tiempo real).
+* **Vista estructurada en 6 columnas con buscador y filtros en tiempo real:** Permite filtrar instantáneamente entre todos los paquetes instalados, actualizaciones pendientes, paquetes `_SBo`, paquetes externos (AlienBOB) o bloqueados (`blacklist`).
+* **Inspector de Paquetes (`/var/log/packages`):** Hacer doble clic sobre cualquier paquete instalado despliega su descripción oficial (`slack-desc`), tamaño comprimido/instalado y la lista completa de archivos instalados en el sistema.
+* **Gestor Visual de Archivos `.new` (`new-config`):** Escanea `/etc` en busca de archivos de configuración `*.new` generados tras una actualización, muestra las diferencias mediante `diff -u` y permite **Conservar el actual** (eliminar `.new`) o **Aplicar el nuevo** (creando un respaldo automático `.orig`).
+* **Editor Rápido de Blacklist (`/etc/slackpkg/blacklist`):** Permite proteger paquetes críticos (`kernel-*`, `_SBo`, `alien`) con un clic y guardar cambios creando respaldo `.bak`.
+* **Desinstalación directa y Monitor en Segundo Plano:** Incluye botón `Remove` por paquete y permanece minimizado en la bandeja del sistema verificando periódicamente `ChangeLog.txt` con contador numérico en vivo.
 
 ### 2. Tienda y Gestión de SlackBuilds.org (`sbopkg`)
-* **Verificación e instalación automática de `sbopkg`:** Detecta si `sbopkg` está ausente y ofrece un asistente directo en pantalla para descargarlo desde GitHub e instalarlo con un solo clic.
-* **Catálogo categorizado y buscador en tiempo real:** Lee el índice `SLACKBUILDS.TXT` local para filtrar miles de recetas por categoría (`audio`, `office`, `multimedia`, `development`, `network`, etc.), por nombre o por descripción.
+* **Verificación e instalación automática de `sbopkg`:** Detecta si `sbopkg` está ausente y ofrece un asistente directo para descargarlo desde GitHub e instalarlo con un clic.
+* **Catálogo categorizado y buscador en tiempo real:** Lee el índice `SLACKBUILDS.TXT` local para filtrar miles de recetas por categoría (`audio`, `office`, `multimedia`, `development`, `network`, etc.), nombre o descripción.
 * **Detección de actualizaciones SBo:** Compara la versión instalada localmente con la disponible en el árbol de SlackBuilds y permite filtrar únicamente los paquetes desactualizados.
-* **Resolución automática de dependencias transitivas:** Analiza recursivamente las claves `REQUIRES` de cada archivo `.info`, realiza un ordenamiento topológico de las dependencias faltantes, genera automáticamente el archivo de cola (`.sqf`) y ejecuta `sbopkg -B -i` en el orden exacto de compilación.
+* **Resolución automática de dependencias transitivas:** Analiza recursivamente las claves `REQUIRES`, realiza un ordenamiento topológico de las dependencias faltantes, genera el archivo de cola (`.sqf`) y ejecuta `sbopkg -B -i` en el orden estricto de compilación.
 
-### 3. Soporte Nativo de Proxy y Seguridad
-* **Detección automática de Proxy:** Lee `/etc/environment` (y las variables del entorno actual) para inyectar `http_proxy`, `https_proxy`, `ftp_proxy` y `no_proxy` tanto en las peticiones de red internas como a través de `pkexec` mediante `/usr/bin/env`.
-* **Elevación de privilegios segura:** Utiliza `pkexec` (Polkit) únicamente al ejecutar operaciones administrativas (`update`, `upgrade-all`, `remove`, `sbopkg`), manteniendo la interfaz y el monitor en segundo plano corriendo como usuario sin privilegios.
+### 3. Repositorio de Binarios Precompilados AlienBOB (`~alien/slackbuilds`)
+* **Instalación rápida sin compilar:** Sincroniza el catálogo oficial `PACKAGES.TXT` de Eric Hameleers (AlienBOB) sin necesidad de permisos de administrador para explorar software listo para usar (`vlc`, `libreoffice`, `chromium`, `wine`, `obs-studio`, `calibre`, etc.).
+* **Autodetección de rama y arquitectura:** Detecta automáticamente si el sistema corresponde a `pkg64/15.0`, `pkg64/current`, `pkg/15.0` o `pkg/current`, permitiendo también explorar otras ramas.
+* **Verificación criptográfica y de integridad:** Cada descarga verifica automáticamente su suma `.md5` y su firma oficial `GPG-KEY` antes de ejecutar `/sbin/upgradepkg --install-new`.
+* **Actualización en lote (`Actualizar todos`) y desinstalación:** Detecta paquetes AlienBOB instalados con versiones nuevas disponibles para actualizarlos en secuencia o desinstalarlos individualmente (`removepkg`).
+
+### 4. Administrador de Kernel y Gestor de Arranque (`initrd` / `ELILO` / `LILO` / `GRUB`)
+* **Diagnóstico completo del entorno de arranque:** Detecta automáticamente el kernel en ejecución (`uname -r`), los kernels instalados en `/boot`, las fuentes en `/usr/src/linux`, el modo de firmware (**UEFI / EFI** o **Legacy BIOS / MBR**), la partición raíz (`findmnt`), el bootloader activo (**ELILO**, **LILO** o **GRUB**) y sistemas operativos en **Dual-Boot**.
+* **Alerta preventiva post-actualización:** Si `slackpkg` instala un kernel nuevo distinto al que está en ejecución y aún no tiene su `initrd` o entrada en el gestor de arranque, muestra una alerta visual inmediata para configurarlo antes de reiniciar.
+* **Generación segura de `initrd` (`/sbin/mkinitrd`):** Autodetecta módulos necesarios (`mkinitrd_command_generator.sh`), dispositivo raíz y sistema de archivos, manteniendo estos parámetros **bloqueados por seguridad** para evitar errores críticos (con opción de desbloqueo explícito en *Modo Avanzado*).
+* **Soporte de compilación `bzImage`:** Si `/usr/src/linux` está presente, permite compilar una imagen `bzImage` personalizada e instalar sus módulos.
+* **Actualización automática del Bootloader con respaldo:**
+  * **ELILO:** Copia `vmlinuz` e `initrd` a la partición EFI (`/boot/efi/EFI/Slackware`), respalda `elilo.conf` y actualiza la entrada principal.
+  * **LILO:** Actualiza `/etc/lilo.conf` (con respaldo `.bak`) y ejecuta `/sbin/lilo -v`.
+  * **GRUB:** Regenera `/boot/grub/grub.cfg` mediante `grub-mkconfig`.
+  * Incluye opción para conservar el kernel anterior como entrada arrancable de emergencia (`Slackware-Prev`) y exige una ventana de confirmación explícita detallando cada comando antes de solicitar la contraseña de `root`.
+
+### 5. Soporte Nativo de Proxy y Seguridad
+* **Detección automática de Proxy:** Lee `/etc/environment` y variables del entorno actual para inyectar `http_proxy`, `https_proxy`, `ftp_proxy` y `no_proxy` tanto en las peticiones HTTP/HTTPS internas como a través de `pkexec` mediante `/usr/bin/env`.
+* **Control estricto de privilegios (`UID 0` / `pkexec`):** Muestra un badge permanente indicando si la sesión corre en *Modo Informativo* o como *ROOT (UID 0)*, solicitando autenticación gráfica vía Polkit únicamente al ejecutar cambios en el sistema.
 
 ---
 
@@ -32,8 +51,10 @@ Está pensada tanto para veteranos de Slackware que desean un monitor silencioso
 * **Framework GUI y Red:** Qt 5 (`QtCore`, `QtGui`, `QtWidgets`, `QtNetwork`)
 * **Sistema de Construcción:** `qmake` (`qmake-qt5`) y GNU `make`
 * **Backends del Sistema:**
-  * `/usr/sbin/slackpkg` (gestión de paquetes oficiales)
-  * `/usr/sbin/sbopkg` (compilación e instalación de SlackBuilds)
+  * `/usr/sbin/slackpkg` (paquetes oficiales)
+  * `/usr/sbin/sbopkg` (SlackBuilds.org)
+  * `/sbin/upgradepkg`, `/sbin/installpkg`, `/sbin/removepkg` (paquetes binarios AlienBOB)
+  * `/sbin/mkinitrd`, `/sbin/lilo`, `/usr/sbin/grub-mkconfig` (gestión de kernel y arranque)
   * `pkexec` / Polkit (autenticación gráfica)
 
 ---
@@ -45,9 +66,9 @@ Está pensada tanto para veteranos de Slackware que desean un monitor silencioso
 
 ---
 
-## Compilación, Instalación y Ejecución
+## Compilación, Instalación y Empaquetado Distribuible
 
-Puedes compilar el proyecto desde **Qt Creator** abriendo directamente el archivo `qslackpkg.pro`, o utilizar el script automatizado `build_and_run.sh` para compilar, probar o instalar globalmente desde la terminal.
+Puedes abrir `qslackpkg.pro` directamente en **Qt Creator**, o utilizar el script `build_and_run.sh` para compilar, instalar o generar paquetes distribuibles listos para compartir.
 
 ### Uso del script `build_and_run.sh`
 
@@ -70,9 +91,23 @@ Puedes compilar el proyecto desde **Qt Creator** abriendo directamente el archiv
      ```bash
      ./build_and_run.sh --clean
      ```
-   * **Instalar globalmente en el sistema** (copia el binario y el logotipo a `/opt/qslackpkg/` y crea la entrada en el menú **Aplicaciones -> Sistema**):
+   * **Instalar globalmente en el sistema** (instala en `/opt/qslackpkg/`, crea el enlace `/usr/bin/qslackpkg` y añade la entrada en **Aplicaciones -> Sistema**):
      ```bash
      ./build_and_run.sh --install
+     ```
+   * **Generar paquete nativo oficial de Slackware (`.txz` o `.tgz`)** en `./dist/` usando `makepkg` (incluye `slack-desc`, `doinst.sh` y suma `.md5`):
+     ```bash
+     ./build_and_run.sh --clean --package
+     # O en formato clásico .tgz:
+     ./build_and_run.sh --clean --tgz
+     ```
+   * **Generar instalador binario autocontenido (`.run`)** estilo `linuxdeployqt` / `makeself` en `./dist/` (un único archivo ejecutable que al abrirse solicita clave de `root` con `pkexec` e instala la aplicación automáticamente sin requerir herramientas de compilación):
+     ```bash
+     ./build_and_run.sh --clean --installer
+     ```
+   * **Definir número de versión personalizado y generar ambos formatos:**
+     ```bash
+     ./build_and_run.sh --clean --version 1.1.0 --package --installer
      ```
    * **Ver todas las opciones disponibles:**
      ```bash
@@ -87,12 +122,13 @@ Puedes compilar el proyecto desde **Qt Creator** abriendo directamente el archiv
 qslackpkg/
 ├── qslackpkg.pro           # Archivo de configuración para qmake / Qt Creator
 ├── main.cpp                # Punto de entrada de la aplicación Qt
-├── mainwindow.h            # Declaración de la ventana principal y estructuras
-├── mainwindow.cpp          # Lógica de UI, slackpkg, sbopkg y resolución de dependencias
+├── mainwindow.h            # Declaración de la ventana principal, estructuras y módulos
+├── mainwindow.cpp          # Lógica de UI, slackpkg, sbopkg, AlienBOB y Kernel/Bootloader
 ├── resources.qrc           # Sistema de recursos Qt (empaqueta el logotipo)
 ├── img/
 │   └── Linux-Slackware-Logo-Vector.png # Logotipo oficial de Slackware
-├── build_and_run.sh        # Script automatizado de compilación e instalación
+├── build_and_run.sh        # Script automatizado de compilación, instalación y empaquetado
+├── dist/                   # Directorio de salida para paquetes .txz/.tgz e instaladores .run
 └── README.md               # Documentación del proyecto
 ```
 
@@ -106,9 +142,10 @@ Si deseas que **QSlackpkg** inicie automáticamente en segundo plano al entrar a
 [Desktop Entry]
 Type=Application
 Name=QSlackpkg
-Comment=Package manager for Slackware Linux
+GenericName=Slackware Package & Kernel Manager
+Comment=Package & Kernel Manager for Slackware Linux
 Exec=/opt/qslackpkg/qslackpkg
 Icon=/opt/qslackpkg/img/Linux-Slackware-Logo-Vector.png
 Terminal=false
-Categories=System;
+Categories=System;PackageManager;
 ```
