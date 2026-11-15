@@ -22,8 +22,8 @@ QT_BEGIN_MOC_NAMESPACE
 QT_WARNING_PUSH
 QT_WARNING_DISABLE_DEPRECATED
 struct qt_meta_stringdata_MainWindow_t {
-    QByteArrayData data[42];
-    char stringdata0[696];
+    QByteArrayData data[48];
+    char stringdata0[803];
 };
 #define QT_MOC_LITERAL(idx, ofs, len) \
     Q_STATIC_BYTE_ARRAY_DATA_HEADER_INITIALIZER_WITH_OFFSET(len, \
@@ -41,50 +41,59 @@ QT_MOC_LITERAL(5, 51, 16), // "runRemovePackage"
 QT_MOC_LITERAL(6, 68, 9), // "shortName"
 QT_MOC_LITERAL(7, 78, 8), // "fullName"
 QT_MOC_LITERAL(8, 87, 24), // "showPendingUpdatesDialog"
-QT_MOC_LITERAL(9, 112, 16), // "runInstallSbopkg"
-QT_MOC_LITERAL(10, 129, 10), // "runSboSync"
-QT_MOC_LITERAL(11, 140, 14), // "filterSboTable"
-QT_MOC_LITERAL(12, 155, 19), // "onInstallSboClicked"
-QT_MOC_LITERAL(13, 175, 14), // "SboPackageInfo"
-QT_MOC_LITERAL(14, 190, 3), // "pkg"
-QT_MOC_LITERAL(15, 194, 12), // "runAlienSync"
-QT_MOC_LITERAL(16, 207, 18), // "runAlienUpgradeAll"
-QT_MOC_LITERAL(17, 226, 16), // "filterAlienTable"
-QT_MOC_LITERAL(18, 243, 21), // "onInstallAlienClicked"
-QT_MOC_LITERAL(19, 265, 16), // "AlienPackageInfo"
-QT_MOC_LITERAL(20, 282, 20), // "onRemoveAlienClicked"
-QT_MOC_LITERAL(21, 303, 21), // "scanKernelEnvironment"
-QT_MOC_LITERAL(22, 325, 24), // "onKernelSelectionChanged"
-QT_MOC_LITERAL(23, 350, 27), // "onToggleUnlockStorageParams"
-QT_MOC_LITERAL(24, 378, 7), // "checked"
-QT_MOC_LITERAL(25, 386, 23), // "updateBootloaderPreview"
-QT_MOC_LITERAL(26, 410, 21), // "runGenerateInitrdOnly"
-QT_MOC_LITERAL(27, 432, 23), // "runUpdateBootloaderOnly"
-QT_MOC_LITERAL(28, 456, 21), // "runFullKernelWorkflow"
-QT_MOC_LITERAL(29, 478, 17), // "readProcessOutput"
-QT_MOC_LITERAL(30, 496, 15), // "processFinished"
-QT_MOC_LITERAL(31, 512, 8), // "exitCode"
-QT_MOC_LITERAL(32, 521, 20), // "QProcess::ExitStatus"
-QT_MOC_LITERAL(33, 542, 10), // "exitStatus"
-QT_MOC_LITERAL(34, 553, 13), // "toggleConsole"
-QT_MOC_LITERAL(35, 567, 24), // "checkUpdatesInBackground"
-QT_MOC_LITERAL(36, 592, 21), // "onChangeLogDownloaded"
-QT_MOC_LITERAL(37, 614, 14), // "QNetworkReply*"
-QT_MOC_LITERAL(38, 629, 5), // "reply"
-QT_MOC_LITERAL(39, 635, 19), // "onTrayIconActivated"
-QT_MOC_LITERAL(40, 655, 33), // "QSystemTrayIcon::ActivationRe..."
-QT_MOC_LITERAL(41, 689, 6) // "reason"
+QT_MOC_LITERAL(9, 112, 19), // "filterOfficialTable"
+QT_MOC_LITERAL(10, 132, 24), // "showPackageDetailsDialog"
+QT_MOC_LITERAL(11, 157, 3), // "row"
+QT_MOC_LITERAL(12, 161, 6), // "column"
+QT_MOC_LITERAL(13, 168, 23), // "showDotNewManagerDialog"
+QT_MOC_LITERAL(14, 192, 26), // "showBlacklistManagerDialog"
+QT_MOC_LITERAL(15, 219, 16), // "runInstallSbopkg"
+QT_MOC_LITERAL(16, 236, 10), // "runSboSync"
+QT_MOC_LITERAL(17, 247, 14), // "filterSboTable"
+QT_MOC_LITERAL(18, 262, 19), // "onInstallSboClicked"
+QT_MOC_LITERAL(19, 282, 14), // "SboPackageInfo"
+QT_MOC_LITERAL(20, 297, 3), // "pkg"
+QT_MOC_LITERAL(21, 301, 12), // "runAlienSync"
+QT_MOC_LITERAL(22, 314, 18), // "runAlienUpgradeAll"
+QT_MOC_LITERAL(23, 333, 16), // "filterAlienTable"
+QT_MOC_LITERAL(24, 350, 21), // "onInstallAlienClicked"
+QT_MOC_LITERAL(25, 372, 16), // "AlienPackageInfo"
+QT_MOC_LITERAL(26, 389, 20), // "onRemoveAlienClicked"
+QT_MOC_LITERAL(27, 410, 21), // "scanKernelEnvironment"
+QT_MOC_LITERAL(28, 432, 24), // "onKernelSelectionChanged"
+QT_MOC_LITERAL(29, 457, 27), // "onToggleUnlockStorageParams"
+QT_MOC_LITERAL(30, 485, 7), // "checked"
+QT_MOC_LITERAL(31, 493, 23), // "updateBootloaderPreview"
+QT_MOC_LITERAL(32, 517, 21), // "runGenerateInitrdOnly"
+QT_MOC_LITERAL(33, 539, 23), // "runUpdateBootloaderOnly"
+QT_MOC_LITERAL(34, 563, 21), // "runFullKernelWorkflow"
+QT_MOC_LITERAL(35, 585, 17), // "readProcessOutput"
+QT_MOC_LITERAL(36, 603, 15), // "processFinished"
+QT_MOC_LITERAL(37, 619, 8), // "exitCode"
+QT_MOC_LITERAL(38, 628, 20), // "QProcess::ExitStatus"
+QT_MOC_LITERAL(39, 649, 10), // "exitStatus"
+QT_MOC_LITERAL(40, 660, 13), // "toggleConsole"
+QT_MOC_LITERAL(41, 674, 24), // "checkUpdatesInBackground"
+QT_MOC_LITERAL(42, 699, 21), // "onChangeLogDownloaded"
+QT_MOC_LITERAL(43, 721, 14), // "QNetworkReply*"
+QT_MOC_LITERAL(44, 736, 5), // "reply"
+QT_MOC_LITERAL(45, 742, 19), // "onTrayIconActivated"
+QT_MOC_LITERAL(46, 762, 33), // "QSystemTrayIcon::ActivationRe..."
+QT_MOC_LITERAL(47, 796, 6) // "reason"
 
     },
     "MainWindow\0runUpdate\0\0runUpgradeAll\0"
     "runCleanSystem\0runRemovePackage\0"
     "shortName\0fullName\0showPendingUpdatesDialog\0"
-    "runInstallSbopkg\0runSboSync\0filterSboTable\0"
-    "onInstallSboClicked\0SboPackageInfo\0"
-    "pkg\0runAlienSync\0runAlienUpgradeAll\0"
-    "filterAlienTable\0onInstallAlienClicked\0"
-    "AlienPackageInfo\0onRemoveAlienClicked\0"
-    "scanKernelEnvironment\0onKernelSelectionChanged\0"
+    "filterOfficialTable\0showPackageDetailsDialog\0"
+    "row\0column\0showDotNewManagerDialog\0"
+    "showBlacklistManagerDialog\0runInstallSbopkg\0"
+    "runSboSync\0filterSboTable\0onInstallSboClicked\0"
+    "SboPackageInfo\0pkg\0runAlienSync\0"
+    "runAlienUpgradeAll\0filterAlienTable\0"
+    "onInstallAlienClicked\0AlienPackageInfo\0"
+    "onRemoveAlienClicked\0scanKernelEnvironment\0"
+    "onKernelSelectionChanged\0"
     "onToggleUnlockStorageParams\0checked\0"
     "updateBootloaderPreview\0runGenerateInitrdOnly\0"
     "runUpdateBootloaderOnly\0runFullKernelWorkflow\0"
@@ -104,7 +113,7 @@ static const uint qt_meta_data_MainWindow[] = {
        8,       // revision
        0,       // classname
        0,    0, // classinfo
-      27,   14, // methods
+      31,   14, // methods
        0,    0, // properties
        0,    0, // enums/sets
        0,    0, // constructors
@@ -112,33 +121,37 @@ static const uint qt_meta_data_MainWindow[] = {
        0,       // signalCount
 
  // slots: name, argc, parameters, tag, flags
-       1,    0,  149,    2, 0x08 /* Private */,
-       3,    0,  150,    2, 0x08 /* Private */,
-       4,    0,  151,    2, 0x08 /* Private */,
-       5,    2,  152,    2, 0x08 /* Private */,
-       8,    0,  157,    2, 0x08 /* Private */,
-       9,    0,  158,    2, 0x08 /* Private */,
-      10,    0,  159,    2, 0x08 /* Private */,
-      11,    0,  160,    2, 0x08 /* Private */,
-      12,    1,  161,    2, 0x08 /* Private */,
-      15,    0,  164,    2, 0x08 /* Private */,
-      16,    0,  165,    2, 0x08 /* Private */,
-      17,    0,  166,    2, 0x08 /* Private */,
-      18,    1,  167,    2, 0x08 /* Private */,
-      20,    1,  170,    2, 0x08 /* Private */,
-      21,    0,  173,    2, 0x08 /* Private */,
-      22,    0,  174,    2, 0x08 /* Private */,
-      23,    1,  175,    2, 0x08 /* Private */,
-      25,    0,  178,    2, 0x08 /* Private */,
-      26,    0,  179,    2, 0x08 /* Private */,
-      27,    0,  180,    2, 0x08 /* Private */,
-      28,    0,  181,    2, 0x08 /* Private */,
-      29,    0,  182,    2, 0x08 /* Private */,
-      30,    2,  183,    2, 0x08 /* Private */,
-      34,    0,  188,    2, 0x08 /* Private */,
-      35,    0,  189,    2, 0x08 /* Private */,
-      36,    1,  190,    2, 0x08 /* Private */,
-      39,    1,  193,    2, 0x08 /* Private */,
+       1,    0,  169,    2, 0x08 /* Private */,
+       3,    0,  170,    2, 0x08 /* Private */,
+       4,    0,  171,    2, 0x08 /* Private */,
+       5,    2,  172,    2, 0x08 /* Private */,
+       8,    0,  177,    2, 0x08 /* Private */,
+       9,    0,  178,    2, 0x08 /* Private */,
+      10,    2,  179,    2, 0x08 /* Private */,
+      13,    0,  184,    2, 0x08 /* Private */,
+      14,    0,  185,    2, 0x08 /* Private */,
+      15,    0,  186,    2, 0x08 /* Private */,
+      16,    0,  187,    2, 0x08 /* Private */,
+      17,    0,  188,    2, 0x08 /* Private */,
+      18,    1,  189,    2, 0x08 /* Private */,
+      21,    0,  192,    2, 0x08 /* Private */,
+      22,    0,  193,    2, 0x08 /* Private */,
+      23,    0,  194,    2, 0x08 /* Private */,
+      24,    1,  195,    2, 0x08 /* Private */,
+      26,    1,  198,    2, 0x08 /* Private */,
+      27,    0,  201,    2, 0x08 /* Private */,
+      28,    0,  202,    2, 0x08 /* Private */,
+      29,    1,  203,    2, 0x08 /* Private */,
+      31,    0,  206,    2, 0x08 /* Private */,
+      32,    0,  207,    2, 0x08 /* Private */,
+      33,    0,  208,    2, 0x08 /* Private */,
+      34,    0,  209,    2, 0x08 /* Private */,
+      35,    0,  210,    2, 0x08 /* Private */,
+      36,    2,  211,    2, 0x08 /* Private */,
+      40,    0,  216,    2, 0x08 /* Private */,
+      41,    0,  217,    2, 0x08 /* Private */,
+      42,    1,  218,    2, 0x08 /* Private */,
+      45,    1,  221,    2, 0x08 /* Private */,
 
  // slots: parameters
     QMetaType::Void,
@@ -147,27 +160,31 @@ static const uint qt_meta_data_MainWindow[] = {
     QMetaType::Void, QMetaType::QString, QMetaType::QString,    6,    7,
     QMetaType::Void,
     QMetaType::Void,
-    QMetaType::Void,
-    QMetaType::Void,
-    QMetaType::Void, 0x80000000 | 13,   14,
-    QMetaType::Void,
-    QMetaType::Void,
-    QMetaType::Void,
-    QMetaType::Void, 0x80000000 | 19,   14,
-    QMetaType::Void, 0x80000000 | 19,   14,
-    QMetaType::Void,
-    QMetaType::Void,
-    QMetaType::Void, QMetaType::Bool,   24,
+    QMetaType::Void, QMetaType::Int, QMetaType::Int,   11,   12,
     QMetaType::Void,
     QMetaType::Void,
     QMetaType::Void,
     QMetaType::Void,
     QMetaType::Void,
-    QMetaType::Void, QMetaType::Int, 0x80000000 | 32,   31,   33,
+    QMetaType::Void, 0x80000000 | 19,   20,
     QMetaType::Void,
     QMetaType::Void,
-    QMetaType::Void, 0x80000000 | 37,   38,
-    QMetaType::Void, 0x80000000 | 40,   41,
+    QMetaType::Void,
+    QMetaType::Void, 0x80000000 | 25,   20,
+    QMetaType::Void, 0x80000000 | 25,   20,
+    QMetaType::Void,
+    QMetaType::Void,
+    QMetaType::Void, QMetaType::Bool,   30,
+    QMetaType::Void,
+    QMetaType::Void,
+    QMetaType::Void,
+    QMetaType::Void,
+    QMetaType::Void,
+    QMetaType::Void, QMetaType::Int, 0x80000000 | 38,   37,   39,
+    QMetaType::Void,
+    QMetaType::Void,
+    QMetaType::Void, 0x80000000 | 43,   44,
+    QMetaType::Void, 0x80000000 | 46,   47,
 
        0        // eod
 };
@@ -183,34 +200,38 @@ void MainWindow::qt_static_metacall(QObject *_o, QMetaObject::Call _c, int _id, 
         case 2: _t->runCleanSystem(); break;
         case 3: _t->runRemovePackage((*reinterpret_cast< const QString(*)>(_a[1])),(*reinterpret_cast< const QString(*)>(_a[2]))); break;
         case 4: _t->showPendingUpdatesDialog(); break;
-        case 5: _t->runInstallSbopkg(); break;
-        case 6: _t->runSboSync(); break;
-        case 7: _t->filterSboTable(); break;
-        case 8: _t->onInstallSboClicked((*reinterpret_cast< const SboPackageInfo(*)>(_a[1]))); break;
-        case 9: _t->runAlienSync(); break;
-        case 10: _t->runAlienUpgradeAll(); break;
-        case 11: _t->filterAlienTable(); break;
-        case 12: _t->onInstallAlienClicked((*reinterpret_cast< const AlienPackageInfo(*)>(_a[1]))); break;
-        case 13: _t->onRemoveAlienClicked((*reinterpret_cast< const AlienPackageInfo(*)>(_a[1]))); break;
-        case 14: _t->scanKernelEnvironment(); break;
-        case 15: _t->onKernelSelectionChanged(); break;
-        case 16: _t->onToggleUnlockStorageParams((*reinterpret_cast< bool(*)>(_a[1]))); break;
-        case 17: _t->updateBootloaderPreview(); break;
-        case 18: _t->runGenerateInitrdOnly(); break;
-        case 19: _t->runUpdateBootloaderOnly(); break;
-        case 20: _t->runFullKernelWorkflow(); break;
-        case 21: _t->readProcessOutput(); break;
-        case 22: _t->processFinished((*reinterpret_cast< int(*)>(_a[1])),(*reinterpret_cast< QProcess::ExitStatus(*)>(_a[2]))); break;
-        case 23: _t->toggleConsole(); break;
-        case 24: _t->checkUpdatesInBackground(); break;
-        case 25: _t->onChangeLogDownloaded((*reinterpret_cast< QNetworkReply*(*)>(_a[1]))); break;
-        case 26: _t->onTrayIconActivated((*reinterpret_cast< QSystemTrayIcon::ActivationReason(*)>(_a[1]))); break;
+        case 5: _t->filterOfficialTable(); break;
+        case 6: _t->showPackageDetailsDialog((*reinterpret_cast< int(*)>(_a[1])),(*reinterpret_cast< int(*)>(_a[2]))); break;
+        case 7: _t->showDotNewManagerDialog(); break;
+        case 8: _t->showBlacklistManagerDialog(); break;
+        case 9: _t->runInstallSbopkg(); break;
+        case 10: _t->runSboSync(); break;
+        case 11: _t->filterSboTable(); break;
+        case 12: _t->onInstallSboClicked((*reinterpret_cast< const SboPackageInfo(*)>(_a[1]))); break;
+        case 13: _t->runAlienSync(); break;
+        case 14: _t->runAlienUpgradeAll(); break;
+        case 15: _t->filterAlienTable(); break;
+        case 16: _t->onInstallAlienClicked((*reinterpret_cast< const AlienPackageInfo(*)>(_a[1]))); break;
+        case 17: _t->onRemoveAlienClicked((*reinterpret_cast< const AlienPackageInfo(*)>(_a[1]))); break;
+        case 18: _t->scanKernelEnvironment(); break;
+        case 19: _t->onKernelSelectionChanged(); break;
+        case 20: _t->onToggleUnlockStorageParams((*reinterpret_cast< bool(*)>(_a[1]))); break;
+        case 21: _t->updateBootloaderPreview(); break;
+        case 22: _t->runGenerateInitrdOnly(); break;
+        case 23: _t->runUpdateBootloaderOnly(); break;
+        case 24: _t->runFullKernelWorkflow(); break;
+        case 25: _t->readProcessOutput(); break;
+        case 26: _t->processFinished((*reinterpret_cast< int(*)>(_a[1])),(*reinterpret_cast< QProcess::ExitStatus(*)>(_a[2]))); break;
+        case 27: _t->toggleConsole(); break;
+        case 28: _t->checkUpdatesInBackground(); break;
+        case 29: _t->onChangeLogDownloaded((*reinterpret_cast< QNetworkReply*(*)>(_a[1]))); break;
+        case 30: _t->onTrayIconActivated((*reinterpret_cast< QSystemTrayIcon::ActivationReason(*)>(_a[1]))); break;
         default: ;
         }
     } else if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
         switch (_id) {
         default: *reinterpret_cast<int*>(_a[0]) = -1; break;
-        case 25:
+        case 29:
             switch (*reinterpret_cast<int*>(_a[1])) {
             default: *reinterpret_cast<int*>(_a[0]) = -1; break;
             case 0:
@@ -250,13 +271,13 @@ int MainWindow::qt_metacall(QMetaObject::Call _c, int _id, void **_a)
     if (_id < 0)
         return _id;
     if (_c == QMetaObject::InvokeMetaMethod) {
-        if (_id < 27)
+        if (_id < 31)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 27;
+        _id -= 31;
     } else if (_c == QMetaObject::RegisterMethodArgumentMetaType) {
-        if (_id < 27)
+        if (_id < 31)
             qt_static_metacall(this, _c, _id, _a);
-        _id -= 27;
+        _id -= 31;
     }
     return _id;
 }

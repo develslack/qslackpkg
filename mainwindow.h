@@ -101,6 +101,10 @@ private slots:
     void runCleanSystem();
     void runRemovePackage(const QString &shortName, const QString &fullName);
     void showPendingUpdatesDialog();
+    void filterOfficialTable();
+    void showPackageDetailsDialog(int row, int column);
+    void showDotNewManagerDialog();
+    void showBlacklistManagerDialog();
 
     // Sbopkg slots
     void runInstallSbopkg();
@@ -146,6 +150,8 @@ private:
     // Motores de escaneo
     void scanPendingUpgrades();
     QStringList queryRealSlackpkgUpgrades();
+    QStringList scanDotNewFiles() const;
+    void refreshDotNewBadge();
     void scanSboRepository();
     QString detectSboRepoPath();
     QStringList resolveSboDependencies(const QString &pkgName, const QMap<QString, QString> &installedMap);
@@ -189,6 +195,11 @@ private:
     QPushButton *m_btnUpdate;
     QPushButton *m_btnUpgrade;
     QPushButton *m_btnClean;
+    QPushButton *m_btnDotNewManager;
+    QPushButton *m_btnBlacklistManager;
+    QLineEdit *m_editOfficialSearch;
+    QComboBox *m_comboOfficialFilter;
+    QLabel *m_lblOfficialCount;
 
     // UI Pestaña SlackBuilds (sbopkg)
     QLabel *m_sboStatusLabel;

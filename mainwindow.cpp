@@ -9,6 +9,8 @@
 #include <QMessageBox>
 #include <QDialog>
 #include <QListWidget>
+#include <QSplitter>
+#include <QInputDialog>
 #include <QFile>
 #include <QFileInfo>
 #include <QDir>
@@ -30,7 +32,7 @@
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     setWindowTitle("QSlackpkg - Package & Kernel Manager for Slackware Linux");
-    resize(1320, 790);
+    resize(1340, 810);
 
     QPixmap logoPixmap(":/img/Linux-Slackware-Logo-Vector.png");
     if (logoPixmap.isNull()) {
@@ -187,30 +189,78 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     // Escaneo inicial de todo el sistema
     scanKernelEnvironment();
     scanPendingUpgrades();
+    refreshDotNewBadge();
     scanSboRepository();
     loadAlienCatalogFromCache();
     QTimer::singleShot(3000, this, &MainWindow::checkUpdatesInBackground);
 }
 
 // ============================================================================
-// PESTAÑA 1: SISTEMA OFICIAL (SLACKPKG)
+// PESTAÑA 1: SISTEMA OFICIAL (SLACKPKG + .NEW + BLACKLIST + BUSCADOR)
 // ============================================================================
 
 QWidget* MainWindow::createOfficialTab() {
     QWidget *tab = new QWidget(this);
     QVBoxLayout *layout = new QVBoxLayout(tab);
 
+    // Fila 1: Acciones principales de slackpkg + Herramientas de mantenimiento (.new y blacklist)
     QHBoxLayout *buttonLayout = new QHBoxLayout();
     m_btnUpdate = new QPushButton("1. Sincronizar listas (slackpkg update)", this);
     m_btnUpgrade = new QPushButton("2. Actualizar sistema (upgrade-all)", this);
     m_btnClean = new QPushButton("3. Limpiar obsoletos (clean-system)", this);
 
+    m_btnDotNewManager = new QPushButton("Revisar archivos .new (0)", this);
+    m_btnDotNewManager->setCursor(Qt::PointingHandCursor);
+    m_btnDotNewManager->setToolTip(
+        "Escanea /etc en busca de archivos de configuración *.new generados tras actualizaciones "
+        "y permite comparar diferencias (diff), conservar o aplicar los nuevos."
+    );
+
+    m_btnBlacklistManager = new QPushButton("Blacklist", this);
+    m_btnBlacklistManager->setCursor(Qt::PointingHandCursor);
+    m_btnBlacklistManager->setToolTip("Gestionar paquetes bloqueados en /etc/slackpkg/blacklist");
+    m_btnBlacklistManager->setStyleSheet(
+        "QPushButton { background-color: #eceff1; color: #37474f; border: 1px solid #b0bec5; "
+        "border-radius: 4px; padding: 5px 10px; font-weight: bold; }"
+        "QPushButton:hover { background-color: #cfd8dc; }"
+    );
+
     buttonLayout->addWidget(m_btnUpdate);
     buttonLayout->addWidget(m_btnUpgrade);
     buttonLayout->addWidget(m_btnClean);
     buttonLayout->addStretch();
+    buttonLayout->addWidget(m_btnDotNewManager);
+    buttonLayout->addWidget(m_btnBlacklistManager);
     layout->addLayout(buttonLayout);
 
+    // Fila 2: Buscador rápido en tiempo real + Filtro de origen/estado
+    QHBoxLayout *filterLayout = new QHBoxLayout();
+    QLabel *lblSearch = new QLabel("Buscar paquete instalado:", this);
+    m_editOfficialSearch = new QLineEdit(this);
+    m_editOfficialSearch->setPlaceholderText("Ej: kernel, glibc, mesa, firefox, sddm, pipewire... (Doble clic en una fila para ver detalles)");
+    m_editOfficialSearch->setClearButtonEnabled(true);
+
+    QLabel *lblFilter = new QLabel("Mostrar:", this);
+    m_comboOfficialFilter = new QComboBox(this);
+    m_comboOfficialFilter->setMinimumWidth(210);
+    m_comboOfficialFilter->addItem("Todos los paquetes instalados", "all");
+    m_comboOfficialFilter->addItem("Solo con actualización disponible", "updates");
+    m_comboOfficialFilter->addItem("Solo paquetes SBo (_SBo)", "sbo");
+    m_comboOfficialFilter->addItem("Solo paquetes Externos (AlienBOB / otros)", "external");
+    m_comboOfficialFilter->addItem("Solo bloqueados (Blacklist)", "blacklisted");
+
+    m_lblOfficialCount = new QLabel("0 paquetes", this);
+    m_lblOfficialCount->setStyleSheet("color: #37474f; font-weight: bold; padding-left: 8px;");
+
+    filterLayout->addWidget(lblSearch);
+    filterLayout->addWidget(m_editOfficialSearch, 1);
+    filterLayout->addSpacing(10);
+    filterLayout->addWidget(lblFilter);
+    filterLayout->addWidget(m_comboOfficialFilter);
+    filterLayout->addWidget(m_lblOfficialCount);
+    layout->addLayout(filterLayout);
+
+    // Tabla principal de 6 columnas
     m_packageTable = new QTableWidget(0, 6, tab);
     m_packageTable->setHorizontalHeaderLabels({
         "Paquete",
@@ -231,8 +281,423 @@ QWidget* MainWindow::createOfficialTab() {
     connect(m_btnUpdate, &QPushButton::clicked, this, &MainWindow::runUpdate);
     connect(m_btnUpgrade, &QPushButton::clicked, this, &MainWindow::runUpgradeAll);
     connect(m_btnClean, &QPushButton::clicked, this, &MainWindow::runCleanSystem);
+    connect(m_btnDotNewManager, &QPushButton::clicked, this, &MainWindow::showDotNewManagerDialog);
+    connect(m_btnBlacklistManager, &QPushButton::clicked, this, &MainWindow::showBlacklistManagerDialog);
+    connect(m_editOfficialSearch, &QLineEdit::textChanged, this, &MainWindow::filterOfficialTable);
+    connect(m_comboOfficialFilter, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::filterOfficialTable);
+    connect(m_packageTable, &QTableWidget::cellDoubleClicked,
+            this, &MainWindow::showPackageDetailsDialog);
 
     return tab;
+}
+
+void MainWindow::filterOfficialTable() {
+    QString query = m_editOfficialSearch->text().trimmed();
+    QString filterType = m_comboOfficialFilter->currentData().toString();
+
+    int totalRows = m_packageTable->rowCount();
+    int visibleRows = 0;
+
+    for (int row = 0; row < totalRows; ++row) {
+        QTableWidgetItem *nameItem = m_packageTable->item(row, 0);
+        QTableWidgetItem *baseItem = m_packageTable->item(row, 1);
+        QTableWidgetItem *sboItem = m_packageTable->item(row, 2);
+        QTableWidgetItem *instItem = m_packageTable->item(row, 3);
+        QTableWidgetItem *statusItem = m_packageTable->item(row, 4);
+        if (!nameItem || !instItem || !statusItem) continue;
+
+        QString rowCategory = nameItem->data(Qt::UserRole).toString();
+        bool matchesType = true;
+        if (filterType != "all") {
+            matchesType = (rowCategory == filterType);
+        }
+
+        bool matchesSearch = true;
+        if (!query.isEmpty()) {
+            matchesSearch = nameItem->text().contains(query, Qt::CaseInsensitive) ||
+                            instItem->text().contains(query, Qt::CaseInsensitive) ||
+                            statusItem->text().contains(query, Qt::CaseInsensitive) ||
+                            (baseItem && baseItem->text().contains(query, Qt::CaseInsensitive)) ||
+                            (sboItem && sboItem->text().contains(query, Qt::CaseInsensitive));
+        }
+
+        bool show = matchesType && matchesSearch;
+        m_packageTable->setRowHidden(row, !show);
+        if (show) visibleRows++;
+    }
+
+    m_lblOfficialCount->setText(QString("Mostrando %1 de %2").arg(visibleRows).arg(totalRows));
+}
+
+void MainWindow::showPackageDetailsDialog(int row, int column) {
+    Q_UNUSED(column);
+    QTableWidgetItem *instItem = m_packageTable->item(row, 3);
+    if (!instItem) return;
+
+    QString pkgFullName = instItem->text();
+    QString pkgLogPath = "/var/log/packages/" + pkgFullName;
+
+    QFile file(pkgLogPath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QMessageBox::warning(this, "Información no disponible",
+                             "No se pudo leer el registro: " + pkgLogPath);
+        return;
+    }
+
+    QString compressedSize = "—";
+    QString uncompressedSize = "—";
+    QString location = "—";
+    QStringList descriptionLines;
+    QStringList fileList;
+    bool inDesc = false;
+    bool inFiles = false;
+
+    QTextStream in(&file);
+    while (!in.atEnd()) {
+        QString line = in.readLine();
+        if (line.startsWith("COMPRESSED PACKAGE SIZE:")) {
+            compressedSize = line.mid(24).trimmed();
+        } else if (line.startsWith("UNCOMPRESSED PACKAGE SIZE:")) {
+            uncompressedSize = line.mid(26).trimmed();
+        } else if (line.startsWith("PACKAGE LOCATION:")) {
+            location = line.mid(17).trimmed();
+        } else if (line.startsWith("PACKAGE DESCRIPTION:")) {
+            inDesc = true;
+            inFiles = false;
+        } else if (line.startsWith("FILE LIST:")) {
+            inDesc = false;
+            inFiles = true;
+        } else if (inDesc) {
+            descriptionLines << line;
+        } else if (inFiles) {
+            if (!line.trimmed().isEmpty()) fileList << line;
+        }
+    }
+    file.close();
+
+    QDialog dialog(this);
+    dialog.setWindowTitle("Inspección de Paquete - " + pkgFullName);
+    dialog.resize(740, 520);
+
+    QVBoxLayout *layout = new QVBoxLayout(&dialog);
+
+    QLabel *lblHeader = new QLabel(
+        QString("<b>Paquete:</b> %1<br>"
+                "<b>Tamaño comprimido / instalado:</b> %2 / %3 &nbsp;|&nbsp; "
+                "<b>Archivos instalados:</b> %4")
+            .arg(pkgFullName, compressedSize, uncompressedSize)
+            .arg(fileList.size()),
+        &dialog
+    );
+    lblHeader->setStyleSheet("background-color: #eceff1; padding: 8px; border-radius: 4px;");
+    layout->addWidget(lblHeader);
+
+    layout->addWidget(new QLabel("<b>Descripción oficial (slack-desc):</b>", &dialog));
+    QTextEdit *descView = new QTextEdit(&dialog);
+    descView->setReadOnly(true);
+    descView->setMaximumHeight(165);
+    descView->setPlainText(descriptionLines.join("\n"));
+    descView->setStyleSheet("font-family: monospace; font-size: 9pt; background-color: #fafafa;");
+    layout->addWidget(descView);
+
+    layout->addWidget(new QLabel("<b>Lista de archivos instalados en el sistema:</b>", &dialog));
+    QTextEdit *filesView = new QTextEdit(&dialog);
+    filesView->setReadOnly(true);
+    filesView->setPlainText(fileList.join("\n"));
+    filesView->setStyleSheet("font-family: monospace; font-size: 8.5pt; background-color: #1e1e1e; color: #d4d4d4;");
+    layout->addWidget(filesView);
+
+    QHBoxLayout *btnRow = new QHBoxLayout();
+    QPushButton *btnClose = new QPushButton("Cerrar", &dialog);
+    btnRow->addStretch();
+    btnRow->addWidget(btnClose);
+    layout->addLayout(btnRow);
+
+    connect(btnClose, &QPushButton::clicked, &dialog, &QDialog::accept);
+    dialog.exec();
+}
+
+// ============================================================================
+// GESTOR VISUAL DE ARCHIVOS .NEW (NEW-CONFIG)
+// ============================================================================
+
+QStringList MainWindow::scanDotNewFiles() const {
+    QStringList found;
+    QDir etcDir("/etc");
+    if (!etcDir.exists()) return found;
+
+    QDirIterator it("/etc", {"*.new"}, QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        found.append(it.next());
+    }
+    found.sort();
+    return found;
+}
+
+void MainWindow::refreshDotNewBadge() {
+    QStringList dotNews = scanDotNewFiles();
+    int count = dotNews.size();
+    m_btnDotNewManager->setText(QString("Revisar archivos .new (%1)").arg(count));
+
+    if (count > 0) {
+        m_btnDotNewManager->setStyleSheet(
+            "QPushButton { background-color: #fff3e0; color: #e65100; border: 1px solid #ffb74d; "
+            "border-radius: 4px; padding: 5px 12px; font-weight: bold; }"
+            "QPushButton:hover { background-color: #ef6c00; color: white; }"
+        );
+    } else {
+        m_btnDotNewManager->setStyleSheet(
+            "QPushButton { background-color: #e8f5e9; color: #1b5e20; border: 1px solid #a5d6a7; "
+            "border-radius: 4px; padding: 5px 12px; font-weight: bold; }"
+            "QPushButton:hover { background-color: #c8e6c9; }"
+        );
+    }
+}
+
+void MainWindow::showDotNewManagerDialog() {
+    QStringList dotNews = scanDotNewFiles();
+    if (dotNews.isEmpty()) {
+        QMessageBox::information(
+            this,
+            "Archivos de configuración al día",
+            "No se encontraron archivos *.new pendientes en /etc.\n\n"
+            "Cuando una actualización de paquete incluya configuraciones nuevas, aparecerán aquí "
+            "para que pueda compararlas visualmente."
+        );
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(QString("Gestor Visual de Archivos .new (%1 pendiente(s))").arg(dotNews.size()));
+    dialog.resize(900, 560);
+
+    QVBoxLayout *layout = new QVBoxLayout(&dialog);
+
+    QLabel *lblIntro = new QLabel(
+        "<b>Archivos de configuración nuevos detectados en <code>/etc</code>:</b> En Slackware, las actualizaciones "
+        "no sobrescriben tus configuraciones personales; crean un archivo <code>.new</code> para que revises las diferencias.",
+        &dialog
+    );
+    lblIntro->setWordWrap(true);
+    lblIntro->setStyleSheet("background-color: #e3f2fd; color: #0d47a1; padding: 8px; border-radius: 4px;");
+    layout->addWidget(lblIntro);
+
+    QSplitter *splitter = new QSplitter(Qt::Horizontal, &dialog);
+
+    QListWidget *listFiles = new QListWidget(splitter);
+    listFiles->setMinimumWidth(270);
+    for (const QString &path : dotNews) {
+        listFiles->addItem(path);
+    }
+
+    QTextEdit *diffView = new QTextEdit(splitter);
+    diffView->setReadOnly(true);
+    diffView->setStyleSheet("background-color: #1e1e1e; color: #d4d4d4; font-family: monospace; font-size: 9pt;");
+
+    splitter->addWidget(listFiles);
+    splitter->addWidget(diffView);
+    splitter->setStretchFactor(0, 1);
+    splitter->setStretchFactor(1, 2);
+    layout->addWidget(splitter, 1);
+
+    auto loadDiffForCurrent = [&]() {
+        QListWidgetItem *cur = listFiles->currentItem();
+        if (!cur) {
+            diffView->clear();
+            return;
+        }
+        QString newPath = cur->text();
+        QString origPath = newPath.left(newPath.length() - 4); // quitar ".new"
+
+        if (!QFile::exists(origPath)) {
+            QFile nf(newPath);
+            QString content;
+            if (nf.open(QIODevice::ReadOnly | QIODevice::Text)) {
+                content = QString::fromUtf8(nf.readAll());
+                nf.close();
+            }
+            diffView->setPlainText(
+                QString("# El archivo original %1 aún no existe.\n# Contenido de %2:\n\n%3")
+                    .arg(origPath, newPath, content)
+            );
+            return;
+        }
+
+        QProcess diffProc;
+        diffProc.start("diff", {"-u", origPath, newPath});
+        if (diffProc.waitForFinished(3000)) {
+            QString out = QString::fromUtf8(diffProc.readAllStandardOutput());
+            if (out.trimmed().isEmpty()) {
+                diffView->setPlainText(
+                    QString("# Ambos archivos (%1 y %2) son idénticos.\n# Puede conservar el actual de forma segura.")
+                        .arg(origPath, newPath)
+                );
+            } else {
+                diffView->setPlainText(out);
+            }
+        }
+    };
+
+    connect(listFiles, &QListWidget::currentRowChanged, &dialog, [&](int) {
+        loadDiffForCurrent();
+    });
+
+    QHBoxLayout *btnRow = new QHBoxLayout();
+    QPushButton *btnKeepOld = new QPushButton("Conservar actual (Eliminar .new) [root]", &dialog);
+    btnKeepOld->setStyleSheet(
+        "QPushButton { background-color: #eceff1; color: #263238; border: 1px solid #90a4ae; "
+        "font-weight: bold; padding: 6px 12px; border-radius: 4px; }"
+        "QPushButton:hover { background-color: #cfd8dc; }"
+    );
+
+    QPushButton *btnOverwrite = new QPushButton("Aplicar .new (Respalda .orig) [root]", &dialog);
+    btnOverwrite->setStyleSheet(
+        "QPushButton { background-color: #ef6c00; color: white; font-weight: bold; "
+        "padding: 6px 12px; border-radius: 4px; }"
+        "QPushButton:hover { background-color: #e65100; }"
+    );
+
+    QPushButton *btnClose = new QPushButton("Cerrar", &dialog);
+
+    btnRow->addWidget(btnKeepOld);
+    btnRow->addWidget(btnOverwrite);
+    btnRow->addStretch();
+    btnRow->addWidget(btnClose);
+    layout->addLayout(btnRow);
+
+    connect(btnKeepOld, &QPushButton::clicked, &dialog, [&]() {
+        QListWidgetItem *cur = listFiles->currentItem();
+        if (!cur) return;
+        QString newPath = cur->text();
+        QString cmd = QString("rm -f '%1'").arg(QString(newPath).replace("'", "'\\''"));
+        dialog.accept();
+        executePrivilegedCommand("/bin/sh", {"-c", cmd}, "Eliminando " + newPath + " como root...");
+    });
+
+    connect(btnOverwrite, &QPushButton::clicked, &dialog, [&]() {
+        QListWidgetItem *cur = listFiles->currentItem();
+        if (!cur) return;
+        QString newPath = cur->text();
+        QString origPath = newPath.left(newPath.length() - 4);
+        QString escNew = QString(newPath).replace("'", "'\\''");
+        QString escOrig = QString(origPath).replace("'", "'\\''");
+
+        QString cmd = QString(
+            "if [ -f '%1' ]; then cp -p '%1' '%1.orig'; fi && mv -f '%2' '%1'"
+        ).arg(escOrig, escNew);
+        dialog.accept();
+        executePrivilegedCommand("/bin/sh", {"-c", cmd},
+                                 "Aplicando " + newPath + " (respaldo en .orig) como root...");
+    });
+
+    connect(btnClose, &QPushButton::clicked, &dialog, &QDialog::reject);
+
+    if (listFiles->count() > 0) {
+        listFiles->setCurrentRow(0);
+    }
+    dialog.exec();
+}
+
+// ============================================================================
+// GESTOR VISUAL DE BLACKLIST (/etc/slackpkg/blacklist)
+// ============================================================================
+
+void MainWindow::showBlacklistManagerDialog() {
+    QFile file("/etc/slackpkg/blacklist");
+    QString currentContent;
+    if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        currentContent = QString::fromUtf8(file.readAll());
+        file.close();
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle("Gestor de Blacklist (/etc/slackpkg/blacklist)");
+    dialog.resize(660, 470);
+
+    QVBoxLayout *layout = new QVBoxLayout(&dialog);
+
+    QLabel *lblHint = new QLabel(
+        "<b>Paquetes protegidos contra actualizaciones o limpieza:</b> Los patrones activos en este archivo "
+        "son ignorados por <code>slackpkg upgrade-all</code> y <code>clean-system</code> (por ejemplo, para proteger "
+        "su kernel o paquetes de terceros). Guardar cambios requiere contraseña de <b>root</b>.",
+        &dialog
+    );
+    lblHint->setWordWrap(true);
+    lblHint->setStyleSheet("background-color: #fff8e1; color: #5d4037; padding: 8px; border-radius: 4px;");
+    layout->addWidget(lblHint);
+
+    QHBoxLayout *quickRow = new QHBoxLayout();
+    QPushButton *btnProtectKernel = new QPushButton("+ Bloquear paquetes kernel-*", &dialog);
+    QPushButton *btnProtectSbo = new QPushButton("+ Bloquear todos los _SBo", &dialog);
+    QPushButton *btnProtectAlien = new QPushButton("+ Bloquear todos los alien", &dialog);
+    quickRow->addWidget(btnProtectKernel);
+    quickRow->addWidget(btnProtectSbo);
+    quickRow->addWidget(btnProtectAlien);
+    quickRow->addStretch();
+    layout->addLayout(quickRow);
+
+    QTextEdit *editor = new QTextEdit(&dialog);
+    editor->setPlainText(currentContent);
+    editor->setStyleSheet("font-family: monospace; font-size: 9.5pt;");
+    layout->addWidget(editor, 1);
+
+    auto appendRuleIfMissing = [&](const QString &rule) {
+        QString txt = editor->toPlainText();
+        QStringList lines = txt.split('\n');
+        for (const QString &l : lines) {
+            if (l.trimmed() == rule) return;
+        }
+        if (!txt.endsWith('\n') && !txt.isEmpty()) txt += '\n';
+        txt += rule + '\n';
+        editor->setPlainText(txt);
+    };
+
+    connect(btnProtectKernel, &QPushButton::clicked, &dialog, [&]() {
+        appendRuleIfMissing("kernel-generic");
+        appendRuleIfMissing("kernel-huge");
+        appendRuleIfMissing("kernel-modules");
+        appendRuleIfMissing("kernel-headers");
+        appendRuleIfMissing("kernel-source");
+    });
+    connect(btnProtectSbo, &QPushButton::clicked, &dialog, [&]() {
+        appendRuleIfMissing("[0-9]+_SBo");
+    });
+    connect(btnProtectAlien, &QPushButton::clicked, &dialog, [&]() {
+        appendRuleIfMissing("[0-9]+alien");
+    });
+
+    QHBoxLayout *btnRow = new QHBoxLayout();
+    QPushButton *btnCancel = new QPushButton("Cancelar", &dialog);
+    QPushButton *btnSave = new QPushButton("Guardar Blacklist (requiere root)", &dialog);
+    btnSave->setStyleSheet("background-color: #1565c0; color: white; font-weight: bold; padding: 6px 14px;");
+    btnRow->addStretch();
+    btnRow->addWidget(btnCancel);
+    btnRow->addWidget(btnSave);
+    layout->addLayout(btnRow);
+
+    connect(btnCancel, &QPushButton::clicked, &dialog, &QDialog::reject);
+    connect(btnSave, &QPushButton::clicked, &dialog, [&]() {
+        QString newText = editor->toPlainText();
+        QString tmpFile = "/tmp/qslackpkg_blacklist.tmp";
+        QFile out(tmpFile);
+        if (!out.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QMessageBox::critical(&dialog, "Error", "No se pudo crear archivo temporal en /tmp.");
+            return;
+        }
+        out.write(newText.toUtf8());
+        out.close();
+
+        dialog.accept();
+        QString cmd = QString(
+            "cp -p /etc/slackpkg/blacklist /etc/slackpkg/blacklist.bak && "
+            "install -m 644 '%1' /etc/slackpkg/blacklist && rm -f '%1'"
+        ).arg(tmpFile);
+        executePrivilegedCommand("/bin/sh", {"-c", cmd},
+                                 "Guardando /etc/slackpkg/blacklist como root...");
+    });
+
+    dialog.exec();
 }
 
 // ============================================================================
@@ -322,7 +787,6 @@ QWidget* MainWindow::createAlienTab() {
     QWidget *tab = new QWidget(this);
     QVBoxLayout *layout = new QVBoxLayout(tab);
 
-    // Barra superior de controles (amigable para noveles y completa para avanzados)
     QHBoxLayout *topBar = new QHBoxLayout();
 
     m_btnAlienSync = new QPushButton("Sincronizar catálogo AlienBOB", this);
@@ -379,7 +843,6 @@ QWidget* MainWindow::createAlienTab() {
     topBar->addWidget(m_chkAlienUpdatesOnly);
     layout->addLayout(topBar);
 
-    // Nota informativa amigable para noveles y detalle técnico para avanzados
     QLabel *lblAlienHint = new QLabel(
         "<b>Paquetes binarios precompilados (AlienBOB):</b> Listos para instalar en segundos sin compilar código fuente. "
         "Cada descarga verifica automáticamente su suma <code>.md5</code> y firma <code>GPG-KEY</code> oficial, y solicita contraseña de <b>root</b> antes de instalar o eliminar. "
@@ -444,9 +907,6 @@ QWidget* MainWindow::createKernelTab() {
     QVBoxLayout *layout = new QVBoxLayout(container);
     layout->setSpacing(12);
 
-    // ------------------------------------------------------------------------
-    // AVISO GENERAL OBLIGATORIO DE PRIVILEGIOS ROOT Y LECTURA ATENTA
-    // ------------------------------------------------------------------------
     QString currentSessionNote = (geteuid() == 0)
         ? "Sesión actual detectada: <b>usuario root (UID 0)</b>."
         : "Sesión actual detectada: <b>usuario estándar (Modo Informativo)</b>. Sin ingresar la contraseña de <b>root</b> no se ejecutará ningún cambio.";
@@ -467,9 +927,6 @@ QWidget* MainWindow::createKernelTab() {
     );
     layout->addWidget(lblGlobalRootWarning);
 
-    // ------------------------------------------------------------------------
-    // ALERTA POST-ACTUALIZACIÓN DE KERNEL (VISIBLE SI HAY KERNEL NUEVO SIN CONFIG)
-    // ------------------------------------------------------------------------
     m_kernelAlertCard = new QWidget(container);
     m_kernelAlertCard->setObjectName("kernelAlertCard");
     m_kernelAlertCard->setStyleSheet(
@@ -499,9 +956,6 @@ QWidget* MainWindow::createKernelTab() {
     m_kernelAlertCard->setVisible(false);
     layout->addWidget(m_kernelAlertCard);
 
-    // ------------------------------------------------------------------------
-    // BLOQUE 1: DIAGNÓSTICO AUTOMÁTICO DEL SISTEMA
-    // ------------------------------------------------------------------------
     QGroupBox *grpDiag = new QGroupBox("1. Diagnóstico del Kernel, Firmware y Gestor de Arranque", container);
     QGridLayout *diagGrid = new QGridLayout(grpDiag);
     diagGrid->setHorizontalSpacing(18);
@@ -548,9 +1002,6 @@ QWidget* MainWindow::createKernelTab() {
 
     layout->addWidget(grpDiag);
 
-    // ------------------------------------------------------------------------
-    // BLOQUE 2: SELECCIÓN DE VERSIÓN E IMAGEN DE KERNEL (VMLINUZ / BZIMAGE)
-    // ------------------------------------------------------------------------
     QGroupBox *grpKernelImg = new QGroupBox("2. Versión Objetivo e Imagen del Kernel (vmlinuz / bzImage)", container);
     QVBoxLayout *imgBoxLayout = new QVBoxLayout(grpKernelImg);
 
@@ -573,9 +1024,6 @@ QWidget* MainWindow::createKernelTab() {
 
     layout->addWidget(grpKernelImg);
 
-    // ------------------------------------------------------------------------
-    // BLOQUE 3: GENERACIÓN ASISTIDA DE INITRD (DISPOSITIVOS BLOQUEADOS POR DEFECTO)
-    // ------------------------------------------------------------------------
     QGroupBox *grpInitrd = new QGroupBox("3. Generación de Imagen Inicial RAM (initrd)", container);
     QVBoxLayout *initrdBoxLayout = new QVBoxLayout(grpInitrd);
 
@@ -649,9 +1097,6 @@ QWidget* MainWindow::createKernelTab() {
 
     layout->addWidget(grpInitrd);
 
-    // ------------------------------------------------------------------------
-    // BLOQUE 4: CONFIGURACIÓN AUTOMÁTICA DEL BOOTLOADER (ELILO / LILO / GRUB)
-    // ------------------------------------------------------------------------
     QGroupBox *grpBootloader = new QGroupBox("4. Actualización Visual del Gestor de Arranque (ELILO / LILO / GRUB)", container);
     QVBoxLayout *bootBoxLayout = new QVBoxLayout(grpBootloader);
 
@@ -714,7 +1159,6 @@ QWidget* MainWindow::createKernelTab() {
 
     scrollArea->setWidget(container);
 
-    // Conexiones de la pestaña Kernel
     connect(m_btnRescanKernel, &QPushButton::clicked, this, &MainWindow::scanKernelEnvironment);
     connect(m_btnKernelAlertSelect, &QPushButton::clicked, this, [this]() {
         int idx = m_comboTargetKernel->findData(m_kernelInfo.latestInstalledKernel);
@@ -765,7 +1209,6 @@ void MainWindow::onToggleUnlockStorageParams(bool checked) {
             return;
         }
     } else {
-        // Al volver a bloquear, restaurar automáticamente los valores seguros autodetectados
         m_editRootDevice->setText(m_kernelInfo.rootDevice);
         m_editRootFs->setText(m_kernelInfo.rootFsType);
         m_editInitrdModules->setText(m_kernelInfo.recommendedModules);
@@ -830,7 +1273,6 @@ QString MainWindow::detectRecommendedInitrdModules(const QString &kernelVer) {
 void MainWindow::scanKernelEnvironment() {
     KernelEnvironmentInfo info;
 
-    // 1. Kernel actualmente corriendo
     info.runningKernel = QSysInfo::kernelVersion().trimmed();
     if (info.runningKernel.isEmpty()) {
         QProcess unameProc;
@@ -840,7 +1282,6 @@ void MainWindow::scanKernelEnvironment() {
         }
     }
 
-    // 2. Kernels instalados en /boot y /var/log/packages
     QSet<QString> versionsSet;
     QDir bootDir("/boot");
     QStringList vmlinuzFiles = bootDir.entryList({"vmlinuz-*"}, QDir::Files | QDir::NoSymLinks);
@@ -875,7 +1316,6 @@ void MainWindow::scanKernelEnvironment() {
         ? info.runningKernel
         : info.installedKernelVersions.last();
 
-    // 3. Fuentes del Kernel (/usr/src/linux)
     QFile srcMakefile("/usr/src/linux/Makefile");
     if (srcMakefile.open(QIODevice::ReadOnly | QIODevice::Text)) {
         info.hasKernelSources = true;
@@ -896,7 +1336,6 @@ void MainWindow::scanKernelEnvironment() {
         }
     }
 
-    // 4. Partición raíz (/) y sistema de archivos
     QProcess findmntProc;
     findmntProc.start("findmnt", {"-n", "-o", "SOURCE,FSTYPE", "/"});
     if (findmntProc.waitForFinished(2500)) {
@@ -911,7 +1350,6 @@ void MainWindow::scanKernelEnvironment() {
     if (info.rootDevice.isEmpty()) info.rootDevice = "/dev/sda2";
     if (info.rootFsType.isEmpty()) info.rootFsType = "ext4";
 
-    // 5. Firmware UEFI/EFI vs Legacy BIOS/MBR
     if (QDir("/sys/firmware/efi").exists()) {
         info.firmwareMode = "UEFI / EFI";
         if (QDir("/boot/efi/EFI").exists()) {
@@ -932,7 +1370,6 @@ void MainWindow::scanKernelEnvironment() {
         info.firmwareMode = "Legacy BIOS / MBR";
     }
 
-    // 6. Detección de Bootloader instalado y activo (ELILO, LILO, GRUB)
     if (!info.efiSlackwareDir.isEmpty() && QFile::exists(info.efiSlackwareDir + "/elilo.conf")) {
         info.bootloaderType = "ELILO";
         info.bootloaderConfigPath = info.efiSlackwareDir + "/elilo.conf";
@@ -954,7 +1391,6 @@ void MainWindow::scanKernelEnvironment() {
         info.bootloaderConfigPath = "—";
     }
 
-    // 7. Detección de Dual-Boot / Otros Sistemas Operativos
     QSet<QString> otherOsSet;
     if (!info.efiMountPoint.isEmpty()) {
         QDir efiRoot(info.efiMountPoint + "/EFI");
@@ -981,7 +1417,6 @@ void MainWindow::scanKernelEnvironment() {
     info.detectedOtherOS = otherOsSet.values();
     info.hasDualBoot = !info.detectedOtherOS.isEmpty();
 
-    // 8. Verificar si hay un nuevo kernel instalado pendiente de configuración
     if (!info.latestInstalledKernel.isEmpty() && info.latestInstalledKernel != info.runningKernel) {
         bool hasInitrd = QFile::exists(QString("/boot/initrd-%1.gz").arg(info.latestInstalledKernel));
         bool bootloaderConfigured = false;
@@ -999,7 +1434,6 @@ void MainWindow::scanKernelEnvironment() {
     info.recommendedModules = detectRecommendedInitrdModules(info.latestInstalledKernel);
     m_kernelInfo = info;
 
-    // 9. Reflejar diagnóstico en la interfaz
     m_lblDiagRunningKernel->setText(info.runningKernel);
     m_lblDiagInstalledKernels->setText(info.installedKernelVersions.join(", "));
 
@@ -1031,7 +1465,6 @@ void MainWindow::scanKernelEnvironment() {
         m_lblDiagDualBoot->setText("No detectado (Solo Slackware)");
     }
 
-    // Poblar selector de versión de kernel
     m_comboTargetKernel->blockSignals(true);
     m_comboTargetKernel->clear();
     for (int i = info.installedKernelVersions.size() - 1; i >= 0; --i) {
@@ -1047,14 +1480,12 @@ void MainWindow::scanKernelEnvironment() {
     }
     m_comboTargetKernel->blockSignals(false);
 
-    // Autocompletar campos protegidos de initrd con valores detectados
     if (!m_chkUnlockStorageParams->isChecked()) {
         m_editRootDevice->setText(info.rootDevice);
         m_editRootFs->setText(info.rootFsType);
         m_editInitrdModules->setText(info.recommendedModules);
     }
 
-    // Mostrar/ocultar tarjeta de alerta de nuevo kernel
     if (info.newKernelPendingConfig) {
         m_lblKernelAlertText->setText(
             QString("¡Atención! Está ejecutando el kernel %1, pero se detectó la nueva versión instalada %2 "
@@ -1729,6 +2160,7 @@ void MainWindow::scanPendingUpgrades() {
         QString available;
         bool hasUpdate;
         bool isSbo;
+        QString categoryTag; // "updates", "sbo", "external", "blacklisted", "official"
     };
 
     QList<PkgRow> rowsWithUpdates;
@@ -1749,20 +2181,23 @@ void MainWindow::scanPendingUpgrades() {
 
         if (isSboPkg) {
             QString statusText = bl ? "Bloqueado (blacklist)" : "Gestionado por SBo";
-            rowsUpToDate.append({shortName, "—", instFullName, instFullName, statusText, false, true});
+            QString tag = bl ? "blacklisted" : "sbo";
+            rowsUpToDate.append({shortName, "—", instFullName, instFullName, statusText, false, true, tag});
         } else if (confirmedUpgradeMap.contains(shortName)) {
             QString baseName = basePkgMap.value(shortName, "— (Rama Extra)");
             QString repoFullName = confirmedUpgradeMap.value(shortName);
 
-            rowsWithUpdates.append({shortName, baseName, "—", instFullName, repoFullName, true, false});
+            rowsWithUpdates.append({shortName, baseName, "—", instFullName, repoFullName, true, false, "updates"});
             m_confirmedUpdates.append({shortName, instFullName, repoFullName});
         } else {
             QString baseName = basePkgMap.value(shortName, "— (Externo)");
             QString statusText = bl ? "Bloqueado (blacklist)" : "Sin paquete nuevo";
-            rowsUpToDate.append({shortName, baseName, "—", instFullName, statusText, false, false});
+            QString tag = bl ? "blacklisted" : (basePkgMap.contains(shortName) ? "official" : "external");
+            rowsUpToDate.append({shortName, baseName, "—", instFullName, statusText, false, false, tag});
         }
     }
 
+    m_packageTable->setUpdatesEnabled(false);
     m_packageTable->setRowCount(0);
     QList<PkgRow> allRows = rowsWithUpdates + rowsUpToDate;
 
@@ -1771,6 +2206,8 @@ void MainWindow::scanPendingUpgrades() {
         m_packageTable->insertRow(row);
 
         QTableWidgetItem *nameItem = new QTableWidgetItem(item.name);
+        nameItem->setData(Qt::UserRole, item.categoryTag);
+
         QTableWidgetItem *baseItem = new QTableWidgetItem(item.basePkg);
         QTableWidgetItem *sboItem = new QTableWidgetItem(item.sboPkg);
         QTableWidgetItem *instItem = new QTableWidgetItem(item.installed);
@@ -1826,6 +2263,9 @@ void MainWindow::scanPendingUpgrades() {
         cellLayout->addWidget(btnRemove);
         m_packageTable->setCellWidget(row, 5, cellWidget);
     }
+
+    m_packageTable->setUpdatesEnabled(true);
+    filterOfficialTable();
 
     int pendingCount = m_confirmedUpdates.size();
     m_btnUpgrade->setEnabled(pendingCount > 0);
@@ -2414,7 +2854,6 @@ void MainWindow::runAlienSync() {
 void MainWindow::parseAlienPackagesIndex(const QString &indexContent) {
     m_alienCatalog.clear();
 
-    // Mapear paquetes instalados actualmente en /var/log/packages
     QMap<QString, QString> installedFullMap;
     QMap<QString, QString> installedVerMap;
     QMap<QString, QString> installedBuildMap;
@@ -2624,7 +3063,6 @@ void MainWindow::filterAlienTable() {
         m_alienTable->setItem(row, 4, sizeItem);
         m_alienTable->setItem(row, 5, descItem);
 
-        // Celda de acciones: Instalar/Actualizar/Reinstalar + Remove (si está instalado)
         QWidget *cellWidget = new QWidget(m_alienTable);
         QHBoxLayout *cellLayout = new QHBoxLayout(cellWidget);
         cellLayout->setContentsMargins(4, 2, 4, 2);
@@ -2813,7 +3251,6 @@ void MainWindow::executePrivilegedCommand(const QString &binaryPath, const QStri
     QMap<QString, QString> proxyVars = loadProxyEnvironment();
     QStringList fullArgs;
 
-    // Forzamos explícitamente autenticación como usuario root (--user root)
     fullArgs << "--user" << "root";
 
     if (!proxyVars.isEmpty()) {
@@ -2912,7 +3349,6 @@ void MainWindow::processFinished(int exitCode, QProcess::ExitStatus exitStatus) 
     setUiEnabled(true);
     m_consoleOutput->append(QString("\n>>> Proceso finalizado (Código: %1)").arg(exitCode));
 
-    // Códigos 126 y 127 de pkexec indican cancelación o falla de autenticación root
     if (exitCode == 126 || exitCode == 127) {
         QMessageBox::warning(
             this,
@@ -2924,9 +3360,11 @@ void MainWindow::processFinished(int exitCode, QProcess::ExitStatus exitStatus) 
     }
 
     bool hadPendingKernelBefore = m_kernelInfo.newKernelPendingConfig;
+    int dotNewBefore = m_btnDotNewManager->text().contains("(0)") ? 0 : 1;
 
     scanKernelEnvironment();
     scanPendingUpgrades();
+    refreshDotNewBadge();
     scanSboRepository();
     loadAlienCatalogFromCache();
 
@@ -2938,12 +3376,26 @@ void MainWindow::processFinished(int exitCode, QProcess::ExitStatus exitStatus) 
                 .arg(m_kernelInfo.latestInstalledKernel, m_kernelInfo.bootloaderType),
             QSystemTrayIcon::Warning, 8000
         );
+    } else if (exitCode == 0 && dotNewBefore == 0 && !scanDotNewFiles().isEmpty()) {
+        QMessageBox::StandardButton resp = QMessageBox::information(
+            this,
+            "Nuevos archivos de configuración (.new) detectados",
+            QString("Se detectaron %1 archivo(s) *.new en /etc tras la actualización.\n"
+                    "¿Deseas abrir ahora el Gestor Visual de .new para revisarlos?")
+                .arg(scanDotNewFiles().size()),
+            QMessageBox::Yes | QMessageBox::No
+        );
+        if (resp == QMessageBox::Yes) {
+            showDotNewManagerDialog();
+        }
     }
 }
 
 void MainWindow::setUiEnabled(bool enabled) {
     m_btnUpdate->setEnabled(enabled);
     m_btnClean->setEnabled(enabled);
+    m_btnDotNewManager->setEnabled(enabled);
+    m_btnBlacklistManager->setEnabled(enabled);
     m_btnInstallSbopkg->setEnabled(enabled && !QFile::exists("/usr/sbin/sbopkg"));
     m_btnSboSync->setEnabled(enabled && QFile::exists("/usr/sbin/sbopkg"));
     m_btnAlienSync->setEnabled(enabled);
