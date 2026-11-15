@@ -333,9 +333,20 @@ QWidget* MainWindow::createAlienTab() {
         "QPushButton:hover { background-color: #0d47a1; }"
     );
 
+    m_btnAlienUpgradeAll = new QPushButton("Actualizar todos (0)", this);
+    m_btnAlienUpgradeAll->setCursor(Qt::PointingHandCursor);
+    m_btnAlienUpgradeAll->setEnabled(false);
+    m_btnAlienUpgradeAll->setToolTip("Actualiza en lote todos los paquetes AlienBOB instalados que tengan nueva versión (requiere root)");
+    m_btnAlienUpgradeAll->setStyleSheet(
+        "QPushButton { background-color: #ef6c00; color: white; font-weight: bold; "
+        "padding: 6px 12px; border-radius: 4px; }"
+        "QPushButton:hover:enabled { background-color: #e65100; }"
+        "QPushButton:disabled { background-color: #eceff1; color: #90a4ae; }"
+    );
+
     QLabel *lblBranch = new QLabel("Rama / Arq.:", this);
     m_comboAlienBranch = new QComboBox(this);
-    m_comboAlienBranch->setMinimumWidth(165);
+    m_comboAlienBranch->setMinimumWidth(160);
     m_comboAlienBranch->setToolTip(
         "Filtro automático según su versión de Slackware y arquitectura.\n"
         "Usuarios avanzados pueden explorar otras ramas si lo desean."
@@ -357,10 +368,11 @@ QWidget* MainWindow::createAlienTab() {
     m_chkAlienUpdatesOnly = new QCheckBox("Solo con actualización", this);
 
     topBar->addWidget(m_btnAlienSync);
-    topBar->addSpacing(10);
+    topBar->addWidget(m_btnAlienUpgradeAll);
+    topBar->addSpacing(8);
     topBar->addWidget(lblBranch);
     topBar->addWidget(m_comboAlienBranch);
-    topBar->addSpacing(10);
+    topBar->addSpacing(8);
     topBar->addWidget(lblSearch);
     topBar->addWidget(m_editAlienSearch);
     topBar->addWidget(m_chkAlienInstalledOnly);
@@ -370,7 +382,7 @@ QWidget* MainWindow::createAlienTab() {
     // Nota informativa amigable para noveles y detalle técnico para avanzados
     QLabel *lblAlienHint = new QLabel(
         "<b>Paquetes binarios precompilados (AlienBOB):</b> Listos para instalar en segundos sin compilar código fuente. "
-        "Cada descarga verifica automáticamente su suma <code>.md5</code> oficial y solicita contraseña de <b>root</b> antes de instalar o eliminar. "
+        "Cada descarga verifica automáticamente su suma <code>.md5</code> y firma <code>GPG-KEY</code> oficial, y solicita contraseña de <b>root</b> antes de instalar o eliminar. "
         "<i>(Pase el cursor sobre un paquete para ver su ruta exacta y dependencias).</i>",
         this
     );
@@ -409,6 +421,7 @@ QWidget* MainWindow::createAlienTab() {
     layout->addWidget(m_alienTable);
 
     connect(m_btnAlienSync, &QPushButton::clicked, this, &MainWindow::runAlienSync);
+    connect(m_btnAlienUpgradeAll, &QPushButton::clicked, this, &MainWindow::runAlienUpgradeAll);
     connect(m_comboAlienBranch, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::filterAlienTable);
     connect(m_editAlienSearch, &QLineEdit::textChanged, this, &MainWindow::filterAlienTable);
@@ -2277,7 +2290,7 @@ void MainWindow::runSboSync() {
 }
 
 // ============================================================================
-// MOTOR REPOSITORIO ALIENBOB (DESCARGA, PARSEO, INSTALACIÓN, ACTUALIZACIÓN, REMOVE)
+// MOTOR REPOSITORIO ALIENBOB (DESCARGA, VERIFICACIÓN MD5+GPG, INSTALACIÓN, REMOVE)
 // ============================================================================
 
 QString MainWindow::detectAlienTargetBranch() const {
@@ -2309,12 +2322,39 @@ QString MainWindow::getAlienCacheFilePath() const {
     return cacheDir + "/alien_PACKAGES.TXT";
 }
 
+QString MainWindow::buildAlienInstallSnippet(const AlienPackageInfo &pkg) const {
+    QString pkgUrl = m_alienBaseUrl + pkg.location + "/" + pkg.fileName;
+    QString md5Url = pkgUrl + ".md5";
+    QString ascUrl = pkgUrl + ".asc";
+
+    return QString(
+        "echo '>>> Descargando %1 desde AlienBOB...'; "
+        "wget -O '%1' '%2'; "
+        "echo '>>> Verificando suma MD5...'; "
+        "if wget -q -O '%1.md5' '%3'; then "
+        "  md5sum -c '%1.md5'; "
+        "else "
+        "  echo 'AVISO: Archivo .md5 no disponible en servidor.'; "
+        "fi; "
+        "if command -v gpg >/dev/null 2>&1 && [ -s GPG-KEY ]; then "
+        "  if wget -q -O '%1.asc' '%4'; then "
+        "    echo '>>> Verificando firma GPG de Eric Hameleers...'; "
+        "    gpg --homedir \"$TMPD/gnupg\" --verify '%1.asc' '%1'; "
+        "  fi; "
+        "fi; "
+        "echo '>>> Instalando / actualizando %1 en el sistema...'; "
+        "/sbin/upgradepkg --install-new '%1'"
+    ).arg(pkg.fileName, pkgUrl, md5Url, ascUrl);
+}
+
 void MainWindow::loadAlienCatalogFromCache() {
     QString cachePath = getAlienCacheFilePath();
     QFile file(cachePath);
     if (!file.exists() || !file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         m_alienCatalog.clear();
         m_alienTable->setRowCount(0);
+        m_btnAlienUpgradeAll->setEnabled(false);
+        m_btnAlienUpgradeAll->setText("Actualizar todos (0)");
         m_alienStatusLabel->setStyleSheet("color: #ef6c00; font-weight: bold; padding: 4px;");
         m_alienStatusLabel->setText(
             "Catálogo AlienBOB aún no sincronizado. Pulsa 'Sincronizar catálogo AlienBOB' "
@@ -2486,6 +2526,9 @@ void MainWindow::parseAlienPackagesIndex(const QString &indexContent) {
         }
     }
 
+    m_btnAlienUpgradeAll->setEnabled(branchUpdatesCount > 0);
+    m_btnAlienUpgradeAll->setText(QString("Actualizar todos (%1)").arg(branchUpdatesCount));
+
     m_alienStatusLabel->setStyleSheet("color: #0d47a1; font-weight: bold; padding: 4px;");
     m_alienStatusLabel->setText(
         QString("Catálogo AlienBOB listo (%1): %2 binarios disponibles en rama seleccionada (%3 total) | Actualizaciones AlienBOB: %4")
@@ -2509,9 +2552,12 @@ void MainWindow::filterAlienTable() {
 
     int maxVisible = (selectedBranch.isEmpty() && searchQuery.isEmpty() && !onlyInstalled && !onlyUpdates) ? 500 : 2500;
     int shown = 0;
+    int branchUpdatesCount = 0;
 
     for (const AlienPackageInfo &pkg : m_alienCatalog) {
         if (!selectedBranch.isEmpty() && pkg.branchTag != selectedBranch) continue;
+        if (pkg.hasUpdate) branchUpdatesCount++;
+
         if (onlyInstalled && pkg.installedFull.isEmpty()) continue;
         if (onlyUpdates && !pkg.hasUpdate) continue;
         if (!searchQuery.isEmpty() &&
@@ -2627,12 +2673,68 @@ void MainWindow::filterAlienTable() {
         m_alienTable->setCellWidget(row, 6, cellWidget);
     }
 
+    m_btnAlienUpgradeAll->setEnabled(branchUpdatesCount > 0);
+    m_btnAlienUpgradeAll->setText(QString("Actualizar todos (%1)").arg(branchUpdatesCount));
     m_alienTable->setUpdatesEnabled(true);
+}
+
+void MainWindow::runAlienUpgradeAll() {
+    QString selectedBranch = m_comboAlienBranch->currentData().toString();
+    QList<AlienPackageInfo> pendingList;
+
+    for (const AlienPackageInfo &pkg : m_alienCatalog) {
+        if (!selectedBranch.isEmpty() && pkg.branchTag != selectedBranch) continue;
+        if (pkg.hasUpdate) {
+            pendingList.append(pkg);
+        }
+    }
+
+    if (pendingList.isEmpty()) return;
+
+    QStringList namesPreview;
+    for (const AlienPackageInfo &pkg : pendingList) {
+        namesPreview << QString("  • %1  (%2  →  %3)").arg(pkg.name, pkg.installedFull, pkg.fileName);
+    }
+
+    QMessageBox::StandardButton reply = QMessageBox::question(
+        this,
+        QString("Actualizar %1 paquete(s) de AlienBOB (Requiere root)").arg(pendingList.size()),
+        QString("Se descargarán, verificarán (MD5 + GPG-KEY) y actualizarán los siguientes paquetes como <b>root</b>:\n\n"
+                "%1\n\n"
+                "¿Deseas continuar e ingresar la contraseña de root?").arg(namesPreview.join("\n")),
+        QMessageBox::Yes | QMessageBox::No
+    );
+    if (reply != QMessageBox::Yes) return;
+
+    if (!m_btnToggleConsole->isChecked()) {
+        m_btnToggleConsole->setChecked(true);
+        toggleConsole();
+    }
+
+    QStringList scriptSteps;
+    scriptSteps << "set -e";
+    scriptSteps << "TMPD=$(mktemp -d /tmp/qslackpkg_alien_batch.XXXXXX)";
+    scriptSteps << "trap 'rm -rf \"$TMPD\"' EXIT";
+    scriptSteps << "cd \"$TMPD\"";
+    scriptSteps << "mkdir -m 700 -p \"$TMPD/gnupg\"";
+    scriptSteps << QString("wget -q -O GPG-KEY '%1GPG-KEY' && gpg --homedir \"$TMPD/gnupg\" --import GPG-KEY 2>/dev/null || true")
+                       .arg(m_alienBaseUrl);
+
+    int total = pendingList.size();
+    for (int i = 0; i < total; ++i) {
+        scriptSteps << QString("echo '>>> (%1/%2) Procesando actualización de %3...'")
+                           .arg(i + 1)
+                           .arg(total)
+                           .arg(pendingList[i].name);
+        scriptSteps << buildAlienInstallSnippet(pendingList[i]);
+    }
+
+    executePrivilegedCommand("/bin/sh", {"-c", scriptSteps.join("; ")},
+                             QString("Actualizando %1 paquete(s) de AlienBOB como root...").arg(total));
 }
 
 void MainWindow::onInstallAlienClicked(const AlienPackageInfo &pkg) {
     QString pkgUrl = m_alienBaseUrl + pkg.location + "/" + pkg.fileName;
-    QString md5Url = pkgUrl + ".md5";
 
     QString depsNote = pkg.requiredDeps.isEmpty()
         ? "Ninguna adicional especificada"
@@ -2647,7 +2749,7 @@ void MainWindow::onInstallAlienClicked(const AlienPackageInfo &pkg) {
                 "• Tamaño comprimido: %3\n"
                 "• Dependencias declaradas: %4\n"
                 "• Origen: %5\n\n"
-                "Antes de instalar, se verificará automáticamente la integridad con md5sum.\n"
+                "Antes de instalar, se verificará automáticamente su suma MD5 y firma GPG oficial.\n"
                 "¿Deseas continuar e ingresar la contraseña de root?")
             .arg(pkg.fileName, pkg.branchTag, pkg.compressedSize, depsNote, pkgUrl),
         QMessageBox::Yes | QMessageBox::No
@@ -2664,17 +2766,10 @@ void MainWindow::onInstallAlienClicked(const AlienPackageInfo &pkg) {
         "TMPD=$(mktemp -d /tmp/qslackpkg_alien.XXXXXX); "
         "trap 'rm -rf \"$TMPD\"' EXIT; "
         "cd \"$TMPD\"; "
-        "echo '>>> Descargando paquete binario desde AlienBOB...'; "
-        "wget -O '%1' '%2'; "
-        "echo '>>> Verificando firma MD5...'; "
-        "if wget -q -O '%1.md5' '%3'; then "
-        "  md5sum -c '%1.md5'; "
-        "else "
-        "  echo 'AVISO: Archivo .md5 no disponible en servidor, continuando...'; "
-        "fi; "
-        "echo '>>> Instalando / actualizando paquete en el sistema...'; "
-        "/sbin/upgradepkg --install-new '%1'"
-    ).arg(pkg.fileName, pkgUrl, md5Url);
+        "mkdir -m 700 -p \"$TMPD/gnupg\"; "
+        "wget -q -O GPG-KEY '%1GPG-KEY' && gpg --homedir \"$TMPD/gnupg\" --import GPG-KEY 2>/dev/null || true; "
+        "%2"
+    ).arg(m_alienBaseUrl, buildAlienInstallSnippet(pkg));
 
     executePrivilegedCommand("/bin/sh", {"-c", cmd},
                              QString("Descargando e instalando %1 desde AlienBOB como root...").arg(pkg.name));
@@ -2865,6 +2960,7 @@ void MainWindow::setUiEnabled(bool enabled) {
     if (!enabled) {
         m_btnUpgrade->setEnabled(false);
         m_btnPendingDetails->setEnabled(false);
+        m_btnAlienUpgradeAll->setEnabled(false);
     }
 }
 

@@ -110,6 +110,7 @@ private slots:
 
     // AlienBOB slots (Repositorio de binarios de Eric Hameleers)
     void runAlienSync();
+    void runAlienUpgradeAll();
     void filterAlienTable();
     void onInstallAlienClicked(const AlienPackageInfo &pkg);
     void onRemoveAlienClicked(const AlienPackageInfo &pkg);
@@ -158,6 +159,7 @@ private:
     void parseAlienPackagesIndex(const QString &indexContent);
     QString detectAlienTargetBranch() const;
     QString getAlienCacheFilePath() const;
+    QString buildAlienInstallSnippet(const AlienPackageInfo &pkg) const;
 
     // Helpers de Kernel y Bootloader
     QString detectRecommendedInitrdModules(const QString &kernelVer);
@@ -200,6 +202,7 @@ private:
     // UI Pestaña Repositorio AlienBOB
     QLabel *m_alienStatusLabel;
     QPushButton *m_btnAlienSync;
+    QPushButton *m_btnAlienUpgradeAll;
     QComboBox *m_comboAlienBranch;
     QLineEdit *m_editAlienSearch;
     QCheckBox *m_chkAlienInstalledOnly;
