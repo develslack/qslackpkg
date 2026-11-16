@@ -22,6 +22,7 @@
 #include <QMap>
 #include <QSet>
 #include <QList>
+#include "usbcreatorwidget.h"
 
 enum TrayState {
     StateUpToDate,
@@ -138,6 +139,9 @@ private slots:
 
     // Sección Kernel & Bootloader
     void openKernelConfiguratorDialog();
+
+    // Acerca de / Créditos / Versión
+    void showAboutDialog();
 
 
 private:
@@ -275,6 +279,12 @@ private:
 
     // Sección UI Pestaña Kernel y Arranque
     QPushButton *m_btnOpenKernelConfigurator;
+
+    // Sección UI Pestaña Creador USB Booteable
+    UsbCreatorWidget *m_usbCreatorWidget;
+
+    // Botón Acerca de...
+    QPushButton *m_btnAbout;
 
 };
 

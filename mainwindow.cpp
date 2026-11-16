@@ -30,6 +30,8 @@
 #include <unistd.h>
 #include "mainwindow.h"
 #include "kernelconfigdialog.h"
+#include "usbcreatorwidget.h"
+#include "version.h"
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     setWindowTitle("QSlackpkg - Package & Kernel Manager for Slackware Linux");
@@ -55,6 +57,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     brandLayout->setContentsMargins(0, 4, 0, 4);
     brandLayout->setSpacing(4);
     brandLayout->setAlignment(Qt::AlignCenter);
+
 
     QLabel *lblLogo = new QLabel(this);
     lblLogo->setAlignment(Qt::AlignCenter);
@@ -90,7 +93,24 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     brandLayout->addWidget(lblLogo);
     brandLayout->addWidget(lblSubtitle);
-    brandLayout->addWidget(m_lblPrivilegeBadge, 0, Qt::AlignCenter);
+    QHBoxLayout *badgeAndAboutRow = new QHBoxLayout();
+    badgeAndAboutRow->setAlignment(Qt::AlignCenter);
+    badgeAndAboutRow->setSpacing(10);
+
+    m_btnAbout = new QPushButton("Acerca de...", this);
+    m_btnAbout->setCursor(Qt::PointingHandCursor);
+    m_btnAbout->setToolTip("Información de versión, desarrollador y tecnologías utilizadas");
+    m_btnAbout->setStyleSheet(
+        "QPushButton { background-color: #e3f2fd; color: #0d47a1; border: 1px solid #90caf9; "
+        "border-radius: 10px; padding: 3px 12px; font-size: 8.8pt; font-weight: bold; }"
+        "QPushButton:hover { background-color: #1565c0; color: white; }"
+    );
+    connect(m_btnAbout, &QPushButton::clicked, this, &MainWindow::showAboutDialog);
+
+    badgeAndAboutRow->addWidget(m_lblPrivilegeBadge);
+    badgeAndAboutRow->addWidget(m_btnAbout);
+    brandLayout->addLayout(badgeAndAboutRow);
+
     mainLayout->addWidget(brandHeader);
 
     // ========================================================================
@@ -121,6 +141,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     bannerContainer->setStyleSheet("#bannerContainer { background-color: #2e7d32; border-radius: 6px; }");
     mainLayout->addWidget(bannerContainer);
 
+    // Debe ir ANTES de crear m_tabs y m_usbCreatorWidget:
+    m_netManager = new QNetworkAccessManager(this);
+
     // ========================================================================
     // 2. PESTAÑAS PRINCIPALES (Oficial | SlackBuilds | AlienBOB | Kernel)
     // ========================================================================
@@ -129,7 +152,21 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_tabs->addTab(createSboTab(), "Repositorio SlackBuilds.org (sbopkg)");
     m_tabs->addTab(createAlienTab(), "Repositorio AlienBOB (Binarios)");
     m_tabs->addTab(createKernelTab(), "Kernel y Arranque (initrd / Bootloader)");
+    m_usbCreatorWidget = new UsbCreatorWidget(m_netManager, getMirrorUrl(), this);
+    m_tabs->addTab(m_usbCreatorWidget, "Creador USB Booteable");
     mainLayout->addWidget(m_tabs);
+
+    connect(m_usbCreatorWidget, &UsbCreatorWidget::usbCreationCompleted,
+            this, [this](const QString &msg) {
+        if (m_trayIcon && m_trayIcon->isVisible()) {
+            m_trayIcon->showMessage(
+                "USB Booteable de Slackware Listo",
+                msg,
+                QSystemTrayIcon::Information,
+                8000
+            );
+        }
+    });
 
     // ========================================================================
     // 3. CONSOLA COMPARTIDA Y BARRA DE PROGRESO
@@ -159,7 +196,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     m_process = new QProcess(this);
     m_process->setProcessChannelMode(QProcess::MergedChannels);
-    m_netManager = new QNetworkAccessManager(this);
 
     QMap<QString, QString> proxyVars = loadProxyEnvironment();
     QString proxyStr = proxyVars.value("https_proxy", proxyVars.value("http_proxy"));
@@ -1220,13 +1256,29 @@ void MainWindow::openKernelConfiguratorDialog() {
         this
     );
 
-    connect(&dialog, &KernelConfigDialog::requestPrivilegedExecution,
-            this, [this](const QString &bin, const QStringList &args, const QString &msg) {
-        if (!m_btnToggleConsole->isChecked()) {
-            m_btnToggleConsole->setChecked(true);
-            toggleConsole();
+    connect(&dialog, &KernelConfigDialog::environmentChanged,
+            this, &MainWindow::scanKernelEnvironment);
+
+    connect(&dialog, &KernelConfigDialog::kernelInstalledNotification,
+            this, [this](const QString &newVer) {
+        QWidget *bannerContainer = findChild<QWidget*>("bannerContainer");
+        if (bannerContainer) {
+            bannerContainer->setStyleSheet("#bannerContainer { background-color: #1565c0; border-radius: 6px; }");
         }
-        executePrivilegedCommand(bin, args, msg);
+        m_statusBanner->setText(
+            QString("¡Nuevo Kernel (%1) compilado e instalado! Reinicie el equipo cuando desee utilizarlo.")
+                .arg(newVer)
+        );
+        updateTrayIconState(StateUpdatesAvailable, 1);
+        if (m_trayIcon && m_trayIcon->isVisible()) {
+            m_trayIcon->showMessage(
+                "Nuevo Kernel listo para usar",
+                QString("El kernel %1 se ha compilado e instalado en %2. Reinicie su equipo para iniciar con él.")
+                    .arg(newVer, m_kernelInfo.bootloaderType),
+                QSystemTrayIcon::Information,
+                10000
+            );
+        }
     });
 
     dialog.exec();
@@ -1737,30 +1789,64 @@ QString MainWindow::buildKernelExecutionScript(bool buildBzImage, bool buildInit
 
             cmds << QString("echo '>>> Contenido actualizado de %1:' && cat '%1'").arg(eliloConf);
         } else if (m_kernelInfo.bootloaderType == "LILO") {
-            cmds << "echo '>>> Actualizando /etc/lilo.conf y ejecutando /sbin/lilo...'";
-            cmds << "cp -v /etc/lilo.conf /etc/lilo.conf.bak.$(date +%Y%m%d%H%M%S)";
-
-            QString liloStanza = QString("image = /boot/%1\\n  root = %2\\n  label = Slackware\\n")
-                                     .arg(kernelFileName, rootDev);
-            if (attachInitrd) {
-                liloStanza += QString("  initrd = /boot/%1\\n").arg(initrdFileName);
-            }
-            liloStanza += "  read-only\\n";
-
-            if (keepFallback) {
-                cmds << QString(
-                    "HEADER=$(awk '/^image[[:space:]]*=/{exit} {print}' /etc/lilo.conf); "
-                    "OLD_STANZAS=$(awk '/^image[[:space:]]*=/{flag=1} flag{print}' /etc/lilo.conf | sed '0,/label[[:space:]]*=[[:space:]]*Slackware/s//label = Slackware-Prev/'); "
-                    "printf '%%s\\n\\n%1\\n%%s\\n' \"$HEADER\" \"$OLD_STANZAS\" > /etc/lilo.conf"
-                ).arg(liloStanza);
-            } else {
-                cmds << QString(
-                    "HEADER=$(awk '/^image[[:space:]]*=/{exit} {print}' /etc/lilo.conf); "
-                    "printf '%%s\\n\\n%1\\n' \"$HEADER\" > /etc/lilo.conf"
-                ).arg(liloStanza);
+            cmds << "echo '>>> Actualizando /etc/lilo.conf (preservando entradas anteriores) y ejecutando /sbin/lilo...'";
+            QString newEntryPath = "/tmp/qslackpkg_lilo_std_entry.txt";
+            QFile f(newEntryPath);
+            if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                QTextStream ts(&f);
+                ts << "image = /boot/" << kernelFileName << "\n";
+                ts << "  root = " << rootDev << "\n";
+                ts << "  label = Slackware\n";
+                if (attachInitrd) {
+                    ts << "  initrd = /boot/" << initrdFileName << "\n";
+                }
+                ts << "  read-only\n";
+                f.close();
             }
 
-            cmds << "/sbin/lilo -v";
+            QString keepFlag = keepFallback ? "1" : "0";
+            cmds << QString(
+                "LILO_BAK=\"/etc/lilo.conf.bak.$(date +%%Y%%m%%d%%H%%M%%S)\"; "
+                "cp -p /etc/lilo.conf \"$LILO_BAK\"; "
+                "LILO_TMP=$(mktemp /tmp/qslackpkg_lilo.XXXXXX); "
+                "awk -v entry_file='%1' -v keep_prev='%2' ' "
+                "BEGIN { in_images = 0; renamed_prev = 0 } "
+                "/^[[:space:]]*(image|other)[[:space:]]*=/ { "
+                "  if (!in_images) { "
+                "    in_images = 1; "
+                "    while ((getline line < entry_file) > 0) print line; "
+                "    close(entry_file); "
+                "    print \"\"; "
+                "  } "
+                "} "
+                "{ "
+                "  if (!in_images) { "
+                "    print $0; "
+                "  } else if (keep_prev == \"1\") { "
+                "    if (!renamed_prev && $0 ~ /^[[:space:]]*label[[:space:]]*=[[:space:]]*Slackware[[:space:]]*$/) { "
+                "      sub(/Slackware/, \"Slackware-Prev\"); "
+                "      renamed_prev = 1; "
+                "    } "
+                "    print $0; "
+                "  } "
+                "} "
+                "END { "
+                "  if (!in_images) { "
+                "    print \"\"; "
+                "    while ((getline line < entry_file) > 0) print line; "
+                "    close(entry_file); "
+                "  } "
+                "} ' \"$LILO_BAK\" > \"$LILO_TMP\"; "
+                "rm -f '%1'; "
+                "cat \"$LILO_TMP\" > /etc/lilo.conf; "
+                "rm -f \"$LILO_TMP\"; "
+                "if ! /sbin/lilo -v; then "
+                "  echo 'ERROR: /sbin/lilo falló. Restaurando respaldo original...'; "
+                "  cp -p \"$LILO_BAK\" /etc/lilo.conf; "
+                "  exit 1; "
+                "fi"
+            ).arg(newEntryPath, keepFlag);
+
         } else if (m_kernelInfo.bootloaderType == "GRUB") {
             cmds << "echo '>>> Regenerando configuración de GRUB (/boot/grub/grub.cfg)...'";
             cmds << "if [ -f /boot/grub/grub.cfg ]; then cp -v /boot/grub/grub.cfg /boot/grub/grub.cfg.bak.$(date +%Y%m%d%H%M%S); fi";
@@ -1966,6 +2052,7 @@ void MainWindow::setupTrayIcon() {
     m_trayMenu = new QMenu(this);
     QAction *showAction = m_trayMenu->addAction("Abrir Centro de Software");
     QAction *checkAction = m_trayMenu->addAction("Buscar actualizaciones ahora");
+    QAction *aboutAction = m_trayMenu->addAction("Acerca de QSlackpkg");
     m_trayMenu->addSeparator();
     QAction *quitAction = m_trayMenu->addAction("Salir completamente");
 
@@ -1976,6 +2063,7 @@ void MainWindow::setupTrayIcon() {
         qApp->quit();
     });
     connect(m_trayIcon, &QSystemTrayIcon::activated, this, &MainWindow::onTrayIconActivated);
+    connect(aboutAction, &QAction::triggered, this, &MainWindow::showAboutDialog);
 
     m_trayIcon->setContextMenu(m_trayMenu);
     m_trayIcon->show();
@@ -3512,4 +3600,51 @@ MainWindow::~MainWindow() {
         m_process->terminate();
         m_process->waitForFinished(3000);
     }
+}
+
+void MainWindow::showAboutDialog() {
+#ifndef APP_VERSION
+#define APP_VERSION "v-1.0.0-compilación-dev"
+#endif
+#ifndef APP_BUILD_DATETIME
+#define APP_BUILD_DATETIME __DATE__ " " __TIME__
+#endif
+
+    QString qtVer = QString::fromLatin1(qVersion());
+
+    QString aboutHtml = QString(
+        "<div style='font-family: sans-serif;'>"
+        "<h2 style='color: #0d47a1; margin-bottom: 4px;'>QSlackpkg — Package &amp; Kernel Manager</h2>"
+        "<p style='color: #37474f; font-size: 10pt; margin-top: 0;'>"
+        "<b>Versión:</b> <code>%1</code><br>"
+        "<b>Marca de compilación:</b> %2 &nbsp;|&nbsp; <b>Runtime Qt:</b> %3"
+        "</p>"
+        "<hr>"
+        "<p>• <b>Slackware Linux</b> es una marca registrada de <b>Patrick Volkerding</b></p>"
+        "<p>• <b>Linux</b> es una marca registrada de <b>Linus Torvals</b></p>"
+        "<hr>"
+        "<p>Centro de administración integral para <b>Slackware Linux</b>: gestión de paquetes "
+        "oficiales (<code>slackpkg</code>), repositorio comunitario (<code>sbopkg</code> / SlackBuilds.org), "
+        "binarios precompilados (AlienBOB), compilación y arranque del Kernel Linux "
+        "(<code>mkinitrd</code>, ELILO, LILO, GRUB2) y creación segura de unidades USB booteables.</p>"
+        "<p><b>Créditos y Desarrollo:</b><br>"
+        "• <b>Desarrollador:</b> <i>[Slackzone Development]</i><br>"
+        "• <b>Sistema Objetivo:</b> Slackware Linux (32-bit &amp; 64-bit)</p>"
+        "<p><b>Tecnologías Utilizadas:</b><br>"
+        "• <b>Lenguaje y Framework:</b> C++11/17 &amp; Qt Widgets / Qt Network (%3)<br>"
+        "• <b>Herramientas de Sistema:</b> slackpkg, sbopkg, pkgtools (installpkg / upgradepkg / removepkg)<br>"
+        "• <b>Kernel &amp; Bootloaders:</b> Kconfig, mkinitrd, ELILO, GRUB2, LILO<br>"
+        "• <b>USB &amp; Seguridad:</b> lsblk (JSON), dd (isohybrid), usbimg2disk.sh, PolicyKit (pkexec)</p>"
+        "</div>"
+    ).arg(QString::fromUtf8(APP_VERSION), QString::fromUtf8(APP_BUILD_DATETIME), qtVer);
+
+    QMessageBox aboutBox(this);
+    aboutBox.setWindowTitle("Acerca de QSlackpkg — " + QString::fromUtf8(APP_VERSION));
+    aboutBox.setTextFormat(Qt::RichText);
+    aboutBox.setText(aboutHtml);
+    if (!windowIcon().isNull()) {
+        aboutBox.setIconPixmap(windowIcon().pixmap(64, 64));
+    }
+    aboutBox.setStandardButtons(QMessageBox::Ok);
+    aboutBox.exec();
 }

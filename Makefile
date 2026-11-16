@@ -17,7 +17,7 @@ CXX           = g++
 DEFINES       = -DQT_NO_DEBUG -DQT_WIDGETS_LIB -DQT_GUI_LIB -DQT_NETWORK_LIB -DQT_CORE_LIB
 CFLAGS        = -pipe -O2 -O2 -fPIC -Wall -Wextra -D_REENTRANT -fPIC $(DEFINES)
 CXXFLAGS      = -pipe -O2 -O2 -fPIC -std=gnu++11 -Wall -Wextra -D_REENTRANT -fPIC $(DEFINES)
-INCPATH       = -I. -I/usr/include/qt5 -I/usr/include/qt5/QtWidgets -I/usr/include/qt5/QtGui -I/usr/include/qt5/QtNetwork -I/usr/include/qt5/QtCore -I. -I. -I/usr/lib64/qt5/mkspecs/linux-g++
+INCPATH       = -I. -I. -I/usr/include/qt5 -I/usr/include/qt5/QtWidgets -I/usr/include/qt5/QtGui -I/usr/include/qt5/QtNetwork -I/usr/include/qt5/QtCore -I. -I. -I/usr/lib64/qt5/mkspecs/linux-g++
 QMAKE         = /usr/bin/qmake-qt5
 DEL_FILE      = rm -f
 CHK_DIR_EXISTS= test -d
@@ -54,15 +54,19 @@ OBJECTS_DIR   = ./
 
 SOURCES       = main.cpp \
 		mainwindow.cpp \
-		kernelconfigdialog.cpp qrc_resources.cpp \
+		kernelconfigdialog.cpp \
+		usbcreatorwidget.cpp qrc_resources.cpp \
 		moc_mainwindow.cpp \
-		moc_kernelconfigdialog.cpp
+		moc_kernelconfigdialog.cpp \
+		moc_usbcreatorwidget.cpp
 OBJECTS       = main.o \
 		mainwindow.o \
 		kernelconfigdialog.o \
+		usbcreatorwidget.o \
 		qrc_resources.o \
 		moc_mainwindow.o \
-		moc_kernelconfigdialog.o
+		moc_kernelconfigdialog.o \
+		moc_usbcreatorwidget.o
 DIST          = /usr/lib64/qt5/mkspecs/features/spec_pre.prf \
 		/usr/lib64/qt5/mkspecs/common/unix.conf \
 		/usr/lib64/qt5/mkspecs/common/linux.conf \
@@ -426,9 +430,11 @@ DIST          = /usr/lib64/qt5/mkspecs/features/spec_pre.prf \
 		/usr/lib64/qt5/mkspecs/features/yacc.prf \
 		/usr/lib64/qt5/mkspecs/features/lex.prf \
 		qslackpkg.pro mainwindow.h \
-		kernelconfigdialog.h main.cpp \
+		kernelconfigdialog.h \
+		usbcreatorwidget.h main.cpp \
 		mainwindow.cpp \
-		kernelconfigdialog.cpp
+		kernelconfigdialog.cpp \
+		usbcreatorwidget.cpp
 QMAKE_TARGET  = qslackpkg
 DESTDIR       = 
 TARGET        = qslackpkg
@@ -1185,8 +1191,8 @@ distdir: FORCE
 	$(COPY_FILE) --parents $(DIST) $(DISTDIR)/
 	$(COPY_FILE) --parents resources.qrc $(DISTDIR)/
 	$(COPY_FILE) --parents /usr/lib64/qt5/mkspecs/features/data/dummy.cpp $(DISTDIR)/
-	$(COPY_FILE) --parents mainwindow.h kernelconfigdialog.h $(DISTDIR)/
-	$(COPY_FILE) --parents main.cpp mainwindow.cpp kernelconfigdialog.cpp $(DISTDIR)/
+	$(COPY_FILE) --parents mainwindow.h kernelconfigdialog.h usbcreatorwidget.h $(DISTDIR)/
+	$(COPY_FILE) --parents main.cpp mainwindow.cpp kernelconfigdialog.cpp usbcreatorwidget.cpp $(DISTDIR)/
 	$(COPY_FILE) --parents mainwindow.ui $(DISTDIR)/
 
 
@@ -1216,6 +1222,7 @@ compiler_rcc_clean:
 	-$(DEL_FILE) qrc_resources.cpp
 qrc_resources.cpp: resources.qrc \
 		/usr/lib64/qt5/bin/rcc \
+		img/qslackpkg.png \
 		img/Linux-Slackware-Logo-Vector.png
 	/usr/lib64/qt5/bin/rcc -name resources resources.qrc -o qrc_resources.cpp
 
@@ -1225,18 +1232,24 @@ compiler_moc_predefs_clean:
 moc_predefs.h: /usr/lib64/qt5/mkspecs/features/data/dummy.cpp
 	g++ -pipe -O2 -O2 -fPIC -std=gnu++11 -Wall -Wextra -dM -E -o moc_predefs.h /usr/lib64/qt5/mkspecs/features/data/dummy.cpp
 
-compiler_moc_header_make_all: moc_mainwindow.cpp moc_kernelconfigdialog.cpp
+compiler_moc_header_make_all: moc_mainwindow.cpp moc_kernelconfigdialog.cpp moc_usbcreatorwidget.cpp
 compiler_moc_header_clean:
-	-$(DEL_FILE) moc_mainwindow.cpp moc_kernelconfigdialog.cpp
+	-$(DEL_FILE) moc_mainwindow.cpp moc_kernelconfigdialog.cpp moc_usbcreatorwidget.cpp
 moc_mainwindow.cpp: mainwindow.h \
+		usbcreatorwidget.h \
 		moc_predefs.h \
 		/usr/lib64/qt5/bin/moc
-	/usr/lib64/qt5/bin/moc $(DEFINES) --include /home/augusto/projects/QT/qslackpkg/qslackpkg/moc_predefs.h -I/usr/lib64/qt5/mkspecs/linux-g++ -I/home/augusto/projects/QT/qslackpkg/qslackpkg -I/usr/include/qt5 -I/usr/include/qt5/QtWidgets -I/usr/include/qt5/QtGui -I/usr/include/qt5/QtNetwork -I/usr/include/qt5/QtCore -I/usr/include/c++/11.2.0 -I/usr/include/c++/11.2.0/x86_64-slackware-linux -I/usr/include/c++/11.2.0/backward -I/usr/lib64/gcc/x86_64-slackware-linux/11.2.0/include -I/usr/local/include -I/usr/lib64/gcc/x86_64-slackware-linux/11.2.0/include-fixed -I/usr/include mainwindow.h -o moc_mainwindow.cpp
+	/usr/lib64/qt5/bin/moc $(DEFINES) --include /home/augusto/projects/QT/qslackpkg/qslackpkg/moc_predefs.h -I/usr/lib64/qt5/mkspecs/linux-g++ -I/home/augusto/projects/QT/qslackpkg/qslackpkg -I/home/augusto/projects/QT/qslackpkg/qslackpkg -I/usr/include/qt5 -I/usr/include/qt5/QtWidgets -I/usr/include/qt5/QtGui -I/usr/include/qt5/QtNetwork -I/usr/include/qt5/QtCore -I/usr/include/c++/11.2.0 -I/usr/include/c++/11.2.0/x86_64-slackware-linux -I/usr/include/c++/11.2.0/backward -I/usr/lib64/gcc/x86_64-slackware-linux/11.2.0/include -I/usr/local/include -I/usr/lib64/gcc/x86_64-slackware-linux/11.2.0/include-fixed -I/usr/include mainwindow.h -o moc_mainwindow.cpp
 
 moc_kernelconfigdialog.cpp: kernelconfigdialog.h \
 		moc_predefs.h \
 		/usr/lib64/qt5/bin/moc
-	/usr/lib64/qt5/bin/moc $(DEFINES) --include /home/augusto/projects/QT/qslackpkg/qslackpkg/moc_predefs.h -I/usr/lib64/qt5/mkspecs/linux-g++ -I/home/augusto/projects/QT/qslackpkg/qslackpkg -I/usr/include/qt5 -I/usr/include/qt5/QtWidgets -I/usr/include/qt5/QtGui -I/usr/include/qt5/QtNetwork -I/usr/include/qt5/QtCore -I/usr/include/c++/11.2.0 -I/usr/include/c++/11.2.0/x86_64-slackware-linux -I/usr/include/c++/11.2.0/backward -I/usr/lib64/gcc/x86_64-slackware-linux/11.2.0/include -I/usr/local/include -I/usr/lib64/gcc/x86_64-slackware-linux/11.2.0/include-fixed -I/usr/include kernelconfigdialog.h -o moc_kernelconfigdialog.cpp
+	/usr/lib64/qt5/bin/moc $(DEFINES) --include /home/augusto/projects/QT/qslackpkg/qslackpkg/moc_predefs.h -I/usr/lib64/qt5/mkspecs/linux-g++ -I/home/augusto/projects/QT/qslackpkg/qslackpkg -I/home/augusto/projects/QT/qslackpkg/qslackpkg -I/usr/include/qt5 -I/usr/include/qt5/QtWidgets -I/usr/include/qt5/QtGui -I/usr/include/qt5/QtNetwork -I/usr/include/qt5/QtCore -I/usr/include/c++/11.2.0 -I/usr/include/c++/11.2.0/x86_64-slackware-linux -I/usr/include/c++/11.2.0/backward -I/usr/lib64/gcc/x86_64-slackware-linux/11.2.0/include -I/usr/local/include -I/usr/lib64/gcc/x86_64-slackware-linux/11.2.0/include-fixed -I/usr/include kernelconfigdialog.h -o moc_kernelconfigdialog.cpp
+
+moc_usbcreatorwidget.cpp: usbcreatorwidget.h \
+		moc_predefs.h \
+		/usr/lib64/qt5/bin/moc
+	/usr/lib64/qt5/bin/moc $(DEFINES) --include /home/augusto/projects/QT/qslackpkg/qslackpkg/moc_predefs.h -I/usr/lib64/qt5/mkspecs/linux-g++ -I/home/augusto/projects/QT/qslackpkg/qslackpkg -I/home/augusto/projects/QT/qslackpkg/qslackpkg -I/usr/include/qt5 -I/usr/include/qt5/QtWidgets -I/usr/include/qt5/QtGui -I/usr/include/qt5/QtNetwork -I/usr/include/qt5/QtCore -I/usr/include/c++/11.2.0 -I/usr/include/c++/11.2.0/x86_64-slackware-linux -I/usr/include/c++/11.2.0/backward -I/usr/lib64/gcc/x86_64-slackware-linux/11.2.0/include -I/usr/local/include -I/usr/lib64/gcc/x86_64-slackware-linux/11.2.0/include-fixed -I/usr/include usbcreatorwidget.h -o moc_usbcreatorwidget.cpp
 
 compiler_moc_objc_header_make_all:
 compiler_moc_objc_header_clean:
@@ -1259,15 +1272,22 @@ compiler_clean: compiler_rcc_clean compiler_moc_predefs_clean compiler_moc_heade
 
 ####### Compile
 
-main.o: main.cpp mainwindow.h
+main.o: main.cpp mainwindow.h \
+		usbcreatorwidget.h \
+		version.h
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o main.o main.cpp
 
 mainwindow.o: mainwindow.cpp mainwindow.h \
-		kernelconfigdialog.h
+		usbcreatorwidget.h \
+		kernelconfigdialog.h \
+		version.h
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o mainwindow.o mainwindow.cpp
 
 kernelconfigdialog.o: kernelconfigdialog.cpp kernelconfigdialog.h
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o kernelconfigdialog.o kernelconfigdialog.cpp
+
+usbcreatorwidget.o: usbcreatorwidget.cpp usbcreatorwidget.h
+	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o usbcreatorwidget.o usbcreatorwidget.cpp
 
 qrc_resources.o: qrc_resources.cpp 
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o qrc_resources.o qrc_resources.cpp
@@ -1277,6 +1297,9 @@ moc_mainwindow.o: moc_mainwindow.cpp
 
 moc_kernelconfigdialog.o: moc_kernelconfigdialog.cpp 
 	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o moc_kernelconfigdialog.o moc_kernelconfigdialog.cpp
+
+moc_usbcreatorwidget.o: moc_usbcreatorwidget.cpp 
+	$(CXX) -c $(CXXFLAGS) $(INCPATH) -o moc_usbcreatorwidget.o moc_usbcreatorwidget.cpp
 
 ####### Install
 

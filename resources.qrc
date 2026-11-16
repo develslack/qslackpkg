@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/">
         <file>img/Linux-Slackware-Logo-Vector.png</file>
+        <file>img/qslackpkg.png</file>
     </qresource>
 </RCC>

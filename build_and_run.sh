@@ -162,9 +162,9 @@ prepare_staging_tree() {
     ln -sf "/opt/qslackpkg/$BINARY_NAME" "$STAGE_DIR/usr/bin/$BINARY_NAME"
 
     if [[ -f "$SRC_IMG" ]]; then
-        cp -f "$SRC_IMG" "$STAGE_DIR/opt/qslackpkg/img/Linux-Slackware-Logo-Vector.png"
+        cp -f "$SRC_IMG" "$STAGE_DIR/opt/qslackpkg/img/qslackpkg.png"
         cp -f "$SRC_IMG" "$STAGE_DIR/usr/share/pixmaps/qslackpkg.png"
-        chmod 644 "$STAGE_DIR/opt/qslackpkg/img/Linux-Slackware-Logo-Vector.png"
+        chmod 644 "$STAGE_DIR/opt/qslackpkg/img/qslackpkg.png"
         chmod 644 "$STAGE_DIR/usr/share/pixmaps/qslackpkg.png"
     fi
 
@@ -175,7 +175,7 @@ Name=QSlackpkg
 GenericName=Slackware Package & Kernel Manager
 Comment=Package & Kernel Manager for Slackware Linux
 Exec=/opt/qslackpkg/qslackpkg
-Icon=/opt/qslackpkg/img/Linux-Slackware-Logo-Vector.png
+Icon=/opt/qslackpkg/img/qslackpkg.png
 Categories=System;PackageManager;
 Terminal=false
 EOF
