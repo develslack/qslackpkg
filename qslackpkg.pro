@@ -10,10 +10,12 @@ CONFIG += c++11
 
 SOURCES += \
     main.cpp \
-    mainwindow.cpp
+    mainwindow.cpp \
+    kernelconfigdialog.cpp
 
 HEADERS += \
-    mainwindow.h
+    mainwindow.h \
+    kernelconfigdialog.h
 
 FORMS += \
     mainwindow.ui

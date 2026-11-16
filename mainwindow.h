@@ -136,6 +136,10 @@ private slots:
     void onChangeLogDownloaded(QNetworkReply *reply);
     void onTrayIconActivated(QSystemTrayIcon::ActivationReason reason);
 
+    // Sección Kernel & Bootloader
+    void openKernelConfiguratorDialog();
+
+
 private:
     void setupTrayIcon();
     void updateTrayIconState(TrayState state, int count);
@@ -268,6 +272,10 @@ private:
     QMenu *m_trayMenu;
     bool m_forceQuit = false;
     QString m_lastKnownChangeLogEntry;
+
+    // Sección UI Pestaña Kernel y Arranque
+    QPushButton *m_btnOpenKernelConfigurator;
+
 };
 
 #endif // MAINWINDOW_H

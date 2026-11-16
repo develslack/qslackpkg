@@ -29,6 +29,7 @@
 #include <QSysInfo>
 #include <unistd.h>
 #include "mainwindow.h"
+#include "kernelconfigdialog.h"
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     setWindowTitle("QSlackpkg - Package & Kernel Manager for Slackware Linux");
@@ -1002,7 +1003,7 @@ QWidget* MainWindow::createKernelTab() {
 
     layout->addWidget(grpDiag);
 
-    QGroupBox *grpKernelImg = new QGroupBox("2. Versión Objetivo e Imagen del Kernel (vmlinuz / bzImage)", container);
+    QGroupBox *grpKernelImg = new QGroupBox("2. Versión Objetivo, Imagen del Kernel y Compilación a Medida", container);
     QVBoxLayout *imgBoxLayout = new QVBoxLayout(grpKernelImg);
 
     QLabel *lblStep2RootNote = new QLabel(
@@ -1021,6 +1022,25 @@ QWidget* MainWindow::createKernelTab() {
     imgForm->addRow("<b>Versión de Kernel a configurar:</b>", m_comboTargetKernel);
     imgForm->addRow("<b>Imagen de Kernel a utilizar:</b>", m_comboKernelVariant);
     imgBoxLayout->addLayout(imgForm);
+
+    QHBoxLayout *customKernelRow = new QHBoxLayout();
+    m_btnOpenKernelConfigurator = new QPushButton(
+        "Descargar, Configurar (Kconfig Visual) y Compilar Kernel a Medida...",
+        grpKernelImg
+    );
+    m_btnOpenKernelConfigurator->setCursor(Qt::PointingHandCursor);
+    m_btnOpenKernelConfigurator->setToolTip(
+        "Abre el asistente visual para descargar fuentes desde Kernel.org, heredar los módulos activos de tu sistema "
+        "(olddefconfig / localmodconfig), personalizar opciones Kconfig sin ncurses y compilar bzImage + initrd."
+    );
+    m_btnOpenKernelConfigurator->setStyleSheet(
+        "QPushButton { background-color: #1565c0; color: white; font-weight: bold; "
+        "padding: 7px 14px; border-radius: 4px; }"
+        "QPushButton:hover { background-color: #0d47a1; }"
+    );
+    customKernelRow->addStretch();
+    customKernelRow->addWidget(m_btnOpenKernelConfigurator);
+    imgBoxLayout->addLayout(customKernelRow);
 
     layout->addWidget(grpKernelImg);
 
@@ -1168,6 +1188,8 @@ QWidget* MainWindow::createKernelTab() {
             this, &MainWindow::onKernelSelectionChanged);
     connect(m_comboKernelVariant, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onKernelSelectionChanged);
+    connect(m_btnOpenKernelConfigurator, &QPushButton::clicked,
+            this, &MainWindow::openKernelConfiguratorDialog);
 
     connect(m_chkUnlockStorageParams, &QCheckBox::toggled, this, &MainWindow::onToggleUnlockStorageParams);
 
@@ -1184,6 +1206,30 @@ QWidget* MainWindow::createKernelTab() {
     connect(m_btnRunFullKernelFlow, &QPushButton::clicked, this, &MainWindow::runFullKernelWorkflow);
 
     return scrollArea;
+}
+
+void MainWindow::openKernelConfiguratorDialog() {
+    KernelConfigDialog dialog(
+        m_netManager,
+        m_editRootDevice->text().trimmed(),
+        m_editRootFs->text().trimmed(),
+        m_kernelInfo.bootloaderType,
+        m_kernelInfo.bootloaderConfigPath,
+        m_kernelInfo.efiSlackwareDir,
+        m_chkKeepFallbackEntry->isChecked(),
+        this
+    );
+
+    connect(&dialog, &KernelConfigDialog::requestPrivilegedExecution,
+            this, [this](const QString &bin, const QStringList &args, const QString &msg) {
+        if (!m_btnToggleConsole->isChecked()) {
+            m_btnToggleConsole->setChecked(true);
+            toggleConsole();
+        }
+        executePrivilegedCommand(bin, args, msg);
+    });
+
+    dialog.exec();
 }
 
 void MainWindow::onToggleUnlockStorageParams(bool checked) {
@@ -3404,6 +3450,7 @@ void MainWindow::setUiEnabled(bool enabled) {
     m_alienTable->setEnabled(enabled);
 
     m_btnRescanKernel->setEnabled(enabled);
+    m_btnOpenKernelConfigurator->setEnabled(enabled);
     m_btnRunInitrdOnly->setEnabled(enabled);
     m_btnRunBootloaderOnly->setEnabled(enabled);
     m_btnRunFullKernelFlow->setEnabled(enabled);
