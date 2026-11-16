@@ -31,6 +31,8 @@
 #include "mainwindow.h"
 #include "kernelconfigdialog.h"
 #include "usbcreatorwidget.h"
+#include "multilibwidget.h"
+#include "systemhealthwidget.h"
 #include "version.h"
 
 MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
@@ -167,6 +169,17 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
             );
         }
     });
+
+    m_multilibWidget = new MultilibWidget(m_netManager, getMirrorUrl(), this);
+    m_tabs->addTab(m_multilibWidget, "Multilib (32-bit)");
+
+    m_systemHealthWidget = new SystemHealthWidget(this);
+    m_tabs->addTab(m_systemHealthWidget, "Salud y Limpieza");
+
+    connect(m_multilibWidget, &MultilibWidget::multilibStateChanged,
+            this, &MainWindow::scanPendingUpgrades);
+    connect(m_systemHealthWidget, &SystemHealthWidget::systemCleaned,
+            this, &MainWindow::scanKernelEnvironment);
 
     // ========================================================================
     // 3. CONSOLA COMPARTIDA Y BARRA DE PROGRESO

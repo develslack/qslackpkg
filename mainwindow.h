@@ -23,6 +23,8 @@
 #include <QSet>
 #include <QList>
 #include "usbcreatorwidget.h"
+#include "multilibwidget.h"
+#include "systemhealthwidget.h"
 
 enum TrayState {
     StateUpToDate,
@@ -285,6 +287,12 @@ private:
 
     // Botón Acerca de...
     QPushButton *m_btnAbout;
+
+    // MULTILIB
+    MultilibWidget *m_multilibWidget;
+
+    // SYSTEM HEALTH
+    SystemHealthWidget *m_systemHealthWidget;
 
 };
 

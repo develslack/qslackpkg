@@ -12,12 +12,16 @@ SOURCES += \
     main.cpp \
     mainwindow.cpp \
     kernelconfigdialog.cpp \
-    usbcreatorwidget.cpp
+    usbcreatorwidget.cpp \
+    multilibwidget.cpp \
+    systemhealthwidget.cpp
 
 HEADERS += \
     mainwindow.h \
     kernelconfigdialog.h \
-    usbcreatorwidget.h
+    usbcreatorwidget.h \
+    multilibwidget.h \
+    systemhealthwidget.h
 
 FORMS += \
     mainwindow.ui
