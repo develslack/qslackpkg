@@ -60,7 +60,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     brandLayout->setSpacing(4);
     brandLayout->setAlignment(Qt::AlignCenter);
 
-
     QLabel *lblLogo = new QLabel(this);
     lblLogo->setAlignment(Qt::AlignCenter);
     if (!logoPixmap.isNull()) {
@@ -143,11 +142,11 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     bannerContainer->setStyleSheet("#bannerContainer { background-color: #2e7d32; border-radius: 6px; }");
     mainLayout->addWidget(bannerContainer);
 
-    // Debe ir ANTES de crear m_tabs y m_usbCreatorWidget:
+    // Debe ir ANTES de crear m_tabs, m_usbCreatorWidget y m_multilibWidget:
     m_netManager = new QNetworkAccessManager(this);
 
     // ========================================================================
-    // 2. PESTAÑAS PRINCIPALES (Oficial | SlackBuilds | AlienBOB | Kernel)
+    // 2. PESTAÑAS PRINCIPALES (Oficial | SlackBuilds | AlienBOB | Kernel | USB | Multilib | Salud)
     // ========================================================================
     m_tabs = new QTabWidget(this);
     m_tabs->addTab(createOfficialTab(), "Sistema Oficial (slackpkg)");
@@ -156,7 +155,6 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_tabs->addTab(createKernelTab(), "Kernel y Arranque (initrd / Bootloader)");
     m_usbCreatorWidget = new UsbCreatorWidget(m_netManager, getMirrorUrl(), this);
     m_tabs->addTab(m_usbCreatorWidget, "Creador USB Booteable");
-    mainLayout->addWidget(m_tabs);
 
     connect(m_usbCreatorWidget, &UsbCreatorWidget::usbCreationCompleted,
             this, [this](const QString &msg) {
@@ -175,6 +173,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     m_systemHealthWidget = new SystemHealthWidget(this);
     m_tabs->addTab(m_systemHealthWidget, "Salud y Limpieza");
+
+    mainLayout->addWidget(m_tabs);
 
     connect(m_multilibWidget, &MultilibWidget::multilibStateChanged,
             this, &MainWindow::scanPendingUpgrades);
@@ -287,7 +287,7 @@ QWidget* MainWindow::createOfficialTab() {
     QHBoxLayout *filterLayout = new QHBoxLayout();
     QLabel *lblSearch = new QLabel("Buscar paquete instalado:", this);
     m_editOfficialSearch = new QLineEdit(this);
-    m_editOfficialSearch->setPlaceholderText("Ej: kernel, glibc, mesa, firefox, sddm, pipewire... (Doble clic en una fila para ver detalles)");
+    m_editOfficialSearch->setPlaceholderText("Ej: kernel, glibc, mesa, firefox, sddm, pipewire o fecha (dd/mm/aaaa)... (Doble clic para detalles)");
     m_editOfficialSearch->setClearButtonEnabled(true);
 
     QLabel *lblFilter = new QLabel("Mostrar:", this);
@@ -310,19 +310,21 @@ QWidget* MainWindow::createOfficialTab() {
     filterLayout->addWidget(m_lblOfficialCount);
     layout->addLayout(filterLayout);
 
-    // Tabla principal de 6 columnas
-    m_packageTable = new QTableWidget(0, 6, tab);
+    // Tabla principal de 7 columnas (incluye Última Actualización)
+    m_packageTable = new QTableWidget(0, 7, tab);
     m_packageTable->setHorizontalHeaderLabels({
         "Paquete",
         "Paquete Base (Rama Principal)",
         "Paquete SBo (SlackBuilds)",
         "Instalado Actual",
         "Estado / Disponible",
+        "Última Actualización",
         "Acciones"
     });
     m_packageTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    m_packageTable->horizontalHeader()->setSectionResizeMode(5, QHeaderView::Fixed);
-    m_packageTable->setColumnWidth(5, 110);
+    m_packageTable->horizontalHeader()->setSectionResizeMode(5, QHeaderView::ResizeToContents);
+    m_packageTable->horizontalHeader()->setSectionResizeMode(6, QHeaderView::Fixed);
+    m_packageTable->setColumnWidth(6, 110);
     m_packageTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_packageTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     m_packageTable->setAlternatingRowColors(true);
@@ -355,6 +357,7 @@ void MainWindow::filterOfficialTable() {
         QTableWidgetItem *sboItem = m_packageTable->item(row, 2);
         QTableWidgetItem *instItem = m_packageTable->item(row, 3);
         QTableWidgetItem *statusItem = m_packageTable->item(row, 4);
+        QTableWidgetItem *dateItem = m_packageTable->item(row, 5);
         if (!nameItem || !instItem || !statusItem) continue;
 
         QString rowCategory = nameItem->data(Qt::UserRole).toString();
@@ -369,7 +372,8 @@ void MainWindow::filterOfficialTable() {
                             instItem->text().contains(query, Qt::CaseInsensitive) ||
                             statusItem->text().contains(query, Qt::CaseInsensitive) ||
                             (baseItem && baseItem->text().contains(query, Qt::CaseInsensitive)) ||
-                            (sboItem && sboItem->text().contains(query, Qt::CaseInsensitive));
+                            (sboItem && sboItem->text().contains(query, Qt::CaseInsensitive)) ||
+                            (dateItem && dateItem->text().contains(query, Qt::CaseInsensitive));
         }
 
         bool show = matchesType && matchesSearch;
@@ -2215,6 +2219,10 @@ void MainWindow::onChangeLogDownloaded(QNetworkReply *reply) {
 QStringList MainWindow::queryRealSlackpkgUpgrades() {
     QStringList realCandidates;
 
+    // Ejecutamos una copia aislada de /usr/sbin/slackpkg en /tmp con su propio
+    // directorio de trabajo (/tmp/.../lib) y lock (/tmp/.../lock) para que
+    // funcione sin permisos de root y aplique EXACTAMENTE las mismas reglas
+    // internas de slackpkg (PRIORITY, BLACKLIST, GREYLIST, patches, etc.).
     QProcess simProc;
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.insert("DIALOG", "off");
@@ -2222,17 +2230,24 @@ QStringList MainWindow::queryRealSlackpkgUpgrades() {
     env.insert("DEFAULT_ANSWER", "n");
     simProc.setProcessEnvironment(env);
 
-    simProc.start("/bin/sh", {"-c",
-        "TMPDIR=$(mktemp -d); "
-        "sed 's|/var/lock|/tmp|g' /usr/sbin/slackpkg > \"$TMPDIR/slackpkg_sim\"; "
+    QString simCmd =
+        "TMPDIR=$(mktemp -d /tmp/qslackpkg_sim.XXXXXX); "
+        "trap 'rm -rf \"$TMPDIR\"' EXIT; "
+        "mkdir -p \"$TMPDIR/lib\" \"$TMPDIR/lock\"; "
+        "cp -a /var/lib/slackpkg/* \"$TMPDIR/lib/\" 2>/dev/null || true; "
+        "sed -e \"s|/var/lock|$TMPDIR/lock|g\" "
+        "    -e \"s|/var/lib/slackpkg|$TMPDIR/lib|g\" "
+        "    /usr/sbin/slackpkg > \"$TMPDIR/slackpkg_sim\"; "
         "chmod +x \"$TMPDIR/slackpkg_sim\"; "
-        "\"$TMPDIR/slackpkg_sim\" -dialog=off -batch=on -default_answer=n upgrade-all 2>/dev/null; "
-        "rm -rf \"$TMPDIR\""
-    });
+        "\"$TMPDIR/slackpkg_sim\" -dialog=off -batch=on -default_answer=n upgrade-all 2>/dev/null";
 
-    if (simProc.waitForFinished(8000)) {
+    simProc.start("/bin/sh", {"-c", simCmd});
+
+    if (simProc.waitForFinished(12000)) {
         QString output = stripAnsiCodes(QString::fromUtf8(simProc.readAllStandardOutput()));
-        QRegularExpression pkgRx("\\b([a-zA-Z0-9._+-]+-[a-zA-Z0-9._+]+-(?:x86_64|i[3456]86|noarch|fw)-[a-zA-Z0-9._+]+)\\.t[gx]z\\b");
+        QRegularExpression pkgRx(
+            "\\b([a-zA-Z0-9._+-]+-[a-zA-Z0-9._+]+-(?:x86_64|i[3456]86|noarch|fw)-[a-zA-Z0-9._+]+)\\.t[gx]z\\b"
+        );
         QRegularExpressionMatchIterator it = pkgRx.globalMatch(output);
         while (it.hasNext()) {
             QRegularExpressionMatch match = it.next();
@@ -2305,6 +2320,7 @@ void MainWindow::scanPendingUpgrades() {
         QString sboPkg;
         QString installed;
         QString available;
+        QString lastUpdated;
         bool hasUpdate;
         bool isSbo;
         QString categoryTag; // "updates", "sbo", "external", "blacklisted", "official"
@@ -2326,21 +2342,26 @@ void MainWindow::scanPendingUpgrades() {
         bool bl = isBlacklisted(instFullName, shortName);
         bool isSboPkg = buildTag.endsWith("_SBo", Qt::CaseInsensitive);
 
+        QFileInfo pkgLogInfo(pkgDir.filePath(instFullName));
+        QString updatedStr = pkgLogInfo.exists()
+            ? pkgLogInfo.lastModified().toString("dd/MM/yyyy HH:mm")
+            : "—";
+
         if (isSboPkg) {
             QString statusText = bl ? "Bloqueado (blacklist)" : "Gestionado por SBo";
             QString tag = bl ? "blacklisted" : "sbo";
-            rowsUpToDate.append({shortName, "—", instFullName, instFullName, statusText, false, true, tag});
+            rowsUpToDate.append({shortName, "—", instFullName, instFullName, statusText, updatedStr, false, true, tag});
         } else if (confirmedUpgradeMap.contains(shortName)) {
             QString baseName = basePkgMap.value(shortName, "— (Rama Extra)");
             QString repoFullName = confirmedUpgradeMap.value(shortName);
 
-            rowsWithUpdates.append({shortName, baseName, "—", instFullName, repoFullName, true, false, "updates"});
+            rowsWithUpdates.append({shortName, baseName, "—", instFullName, repoFullName, updatedStr, true, false, "updates"});
             m_confirmedUpdates.append({shortName, instFullName, repoFullName});
         } else {
             QString baseName = basePkgMap.value(shortName, "— (Externo)");
             QString statusText = bl ? "Bloqueado (blacklist)" : "Sin paquete nuevo";
             QString tag = bl ? "blacklisted" : (basePkgMap.contains(shortName) ? "official" : "external");
-            rowsUpToDate.append({shortName, baseName, "—", instFullName, statusText, false, false, tag});
+            rowsUpToDate.append({shortName, baseName, "—", instFullName, statusText, updatedStr, false, false, tag});
         }
     }
 
@@ -2381,11 +2402,16 @@ void MainWindow::scanPendingUpgrades() {
             availItem->setForeground(QColor("#757575"));
         }
 
+        QTableWidgetItem *dateItem = new QTableWidgetItem(item.lastUpdated);
+        dateItem->setTextAlignment(Qt::AlignCenter);
+        dateItem->setForeground(QColor("#455a64"));
+
         m_packageTable->setItem(row, 0, nameItem);
         m_packageTable->setItem(row, 1, baseItem);
         m_packageTable->setItem(row, 2, sboItem);
         m_packageTable->setItem(row, 3, instItem);
         m_packageTable->setItem(row, 4, availItem);
+        m_packageTable->setItem(row, 5, dateItem);
 
         QWidget *cellWidget = new QWidget(m_packageTable);
         QHBoxLayout *cellLayout = new QHBoxLayout(cellWidget);
@@ -2408,7 +2434,7 @@ void MainWindow::scanPendingUpgrades() {
         });
 
         cellLayout->addWidget(btnRemove);
-        m_packageTable->setCellWidget(row, 5, cellWidget);
+        m_packageTable->setCellWidget(row, 6, cellWidget);
     }
 
     m_packageTable->setUpdatesEnabled(true);
