@@ -209,6 +209,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     m_process = new QProcess(this);
     m_process->setProcessChannelMode(QProcess::MergedChannels);
+    m_process->setStandardInputFile("/dev/null");
 
     QMap<QString, QString> proxyVars = loadProxyEnvironment();
     QString proxyStr = proxyVars.value("https_proxy", proxyVars.value("http_proxy"));
@@ -234,7 +235,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 
     m_checkTimer = new QTimer(this);
     connect(m_checkTimer, &QTimer::timeout, this, &MainWindow::checkUpdatesInBackground);
-    m_checkTimer->start(3600000);
+    m_checkTimer->start(1800000);
 
     // Escaneo inicial de todo el sistema
     scanKernelEnvironment();
@@ -2194,19 +2195,24 @@ void MainWindow::onChangeLogDownloaded(QNetworkReply *reply) {
             localChangeLog.close();
         }
 
+        // Refrescar siempre el estado local de paquetes pendientes
+        scanPendingUpgrades();
+
         if (!firstLine.isEmpty() && firstLine != localFirstLine && firstLine != m_lastKnownChangeLogEntry) {
             m_lastKnownChangeLogEntry = firstLine;
             QWidget *bannerContainer = findChild<QWidget*>("bannerContainer");
             if (bannerContainer) {
                 bannerContainer->setStyleSheet("#bannerContainer { background-color: #ef6c00; border-radius: 6px; }");
             }
-            m_statusBanner->setText("¡Nuevas actualizaciones en el mirror! (" + firstLine + ")");
-            updateTrayIconState(StateUpdatesAvailable, 1);
-            m_trayIcon->showMessage(
-                "Actualizaciones de Slackware disponibles",
-                "Se detectaron cambios en el repositorio (" + firstLine + "). Pulsa 'Sincronizar listas'.",
-                QSystemTrayIcon::Information, 6000
-            );
+            m_statusBanner->setText("¡Nuevas actualizaciones oficiales en el mirror! (" + firstLine + ")");
+            updateTrayIconState(StateUpdatesAvailable, qMax(1, m_confirmedUpdates.size()));
+            if (m_trayIcon && m_trayIcon->isVisible()) {
+                m_trayIcon->showMessage(
+                    "Actualizaciones de Slackware disponibles",
+                    "Se detectaron cambios en el repositorio (" + firstLine + "). Pulsa '1. Sincronizar listas' para actualizar.",
+                    QSystemTrayIcon::Information, 7000
+                );
+            }
         }
     }
     reply->deleteLater();
@@ -2219,40 +2225,57 @@ void MainWindow::onChangeLogDownloaded(QNetworkReply *reply) {
 QStringList MainWindow::queryRealSlackpkgUpgrades() {
     QStringList realCandidates;
 
-    // Ejecutamos una copia aislada de /usr/sbin/slackpkg en /tmp con su propio
-    // directorio de trabajo (/tmp/.../lib) y lock (/tmp/.../lock) para que
-    // funcione sin permisos de root y aplique EXACTAMENTE las mismas reglas
-    // internas de slackpkg (PRIORITY, BLACKLIST, GREYLIST, patches, etc.).
     QProcess simProc;
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
     env.insert("DIALOG", "off");
     env.insert("BATCH", "on");
     env.insert("DEFAULT_ANSWER", "n");
+    env.insert("POSTINST", "off");
     simProc.setProcessEnvironment(env);
+    simProc.setStandardInputFile("/dev/null");
 
+    // Clonamos /etc/slackpkg, /var/lib/slackpkg y /usr/libexec/slackpkg en /tmp
+    // para que el propio motor oficial de slackpkg (con sus plugins slackpkg+,
+    // PRIORITY, blacklist y greylist reales) evalúe qué paquetes actualizaría
+    // sin necesitar permisos de root ni modificar nada en el sistema.
     QString simCmd =
         "TMPDIR=$(mktemp -d /tmp/qslackpkg_sim.XXXXXX); "
         "trap 'rm -rf \"$TMPDIR\"' EXIT; "
-        "mkdir -p \"$TMPDIR/lib\" \"$TMPDIR/lock\"; "
+        "mkdir -p \"$TMPDIR/etc\" \"$TMPDIR/lib\" \"$TMPDIR/lock\" \"$TMPDIR/libexec\"; "
+        "cp -a /etc/slackpkg/* \"$TMPDIR/etc/\" 2>/dev/null || true; "
         "cp -a /var/lib/slackpkg/* \"$TMPDIR/lib/\" 2>/dev/null || true; "
+        "cp -a /usr/libexec/slackpkg/* \"$TMPDIR/libexec/\" 2>/dev/null || true; "
+        "sed -i -e \"s|/var/lock|$TMPDIR/lock|g\" "
+        "       -e \"s|/var/lib/slackpkg|$TMPDIR/lib|g\" "
+        "       -e \"s|/etc/slackpkg|$TMPDIR/etc|g\" "
+        "       \"$TMPDIR/etc/slackpkg.conf\" \"$TMPDIR/libexec/\"* 2>/dev/null || true; "
         "sed -e \"s|/var/lock|$TMPDIR/lock|g\" "
         "    -e \"s|/var/lib/slackpkg|$TMPDIR/lib|g\" "
+        "    -e \"s|/etc/slackpkg|$TMPDIR/etc|g\" "
+        "    -e \"s|/usr/libexec/slackpkg|$TMPDIR/libexec|g\" "
         "    /usr/sbin/slackpkg > \"$TMPDIR/slackpkg_sim\"; "
         "chmod +x \"$TMPDIR/slackpkg_sim\"; "
-        "\"$TMPDIR/slackpkg_sim\" -dialog=off -batch=on -default_answer=n upgrade-all 2>/dev/null";
+        "\"$TMPDIR/slackpkg_sim\" -dialog=off -batch=on -default_answer=n -postinst=off upgrade-all </dev/null 2>/dev/null";
 
     simProc.start("/bin/sh", {"-c", simCmd});
 
     if (simProc.waitForFinished(12000)) {
         QString output = stripAnsiCodes(QString::fromUtf8(simProc.readAllStandardOutput()));
+
+        // Si slackpkg real indica que no hay paquetes para actualizar, devolvemos lista vacía inmediatamente
+        if (output.contains("No packages match the pattern for upgrade", Qt::CaseInsensitive)) {
+            return realCandidates;
+        }
+
+        // Capturar exactamente los archivos de paquete (.txz/.tgz/.tlz) listados por slackpkg
         QRegularExpression pkgRx(
-            "\\b([a-zA-Z0-9._+-]+-[a-zA-Z0-9._+]+-(?:x86_64|i[3456]86|noarch|fw)-[a-zA-Z0-9._+]+)\\.t[gx]z\\b"
+            "([a-zA-Z0-9._+-]+-[^-\\s]+-(?:x86_64|i[3456]86|noarch|fw)-[^-\\s\\.]+)\\.t[gxlb]z\\b"
         );
         QRegularExpressionMatchIterator it = pkgRx.globalMatch(output);
         while (it.hasNext()) {
             QRegularExpressionMatch match = it.next();
-            QString fullName = match.captured(1);
-            if (!realCandidates.contains(fullName)) {
+            QString fullName = match.captured(1).trimmed();
+            if (!fullName.isEmpty() && !realCandidates.contains(fullName)) {
                 realCandidates.append(fullName);
             }
         }
@@ -3440,22 +3463,31 @@ void MainWindow::executePrivilegedCommand(const QString &binaryPath, const QStri
 }
 
 void MainWindow::runUpdate() {
-    executePrivilegedCommand("/usr/sbin/slackpkg", {"-batch=on", "-default_answer=y", "update"},
-                             "Sincronizando listas oficiales con slackpkg (root)...");
+    executePrivilegedCommand(
+        "/bin/sh",
+        {"-c", "rm -f /var/lib/slackpkg/ChangeLog.txt /var/lib/slackpkg/pkglist && /usr/sbin/slackpkg -batch=on -default_answer=y update"},
+        "Sincronizando listas oficiales con slackpkg (root)..."
+    );
 }
 
 void MainWindow::runUpgradeAll() {
     if (m_confirmedUpdates.isEmpty()) return;
 
     QMessageBox::StandardButton reply = QMessageBox::question(
-        this, "Confirmar Actualización (Requiere root)",
-        QString("¿Deseas instalar los %1 paquete(s) confirmados por slackpkg?\n\n"
-                "Se solicitará la contraseña de root para realizar esta operación.").arg(m_confirmedUpdates.size()),
+        this, "Confirmar Actualización Oficial (Requiere root)",
+        QString("¿Deseas descargar e instalar los %1 paquete(s) oficiales pendientes?\n\n"
+                "• Los archivos de configuración actuales (.conf) se conservarán intactos (Keep / .new).\n"
+                "• Se solicitará la contraseña de root para iniciar.").arg(m_confirmedUpdates.size()),
         QMessageBox::Yes | QMessageBox::No
     );
     if (reply == QMessageBox::Yes) {
-        executePrivilegedCommand("/usr/sbin/slackpkg", {"-batch=on", "-default_answer=y", "upgrade-all"},
-                                 "Aplicando actualizaciones del sistema como root...");
+        // -postinst=off evita el menú interactivo de archivos .new (equivale a elegir siempre 'K' - Keep)
+        // para que nunca se sobrescriban tus .conf actuales ni se corte la tubería (SIGPIPE).
+        executePrivilegedCommand(
+            "/usr/sbin/slackpkg",
+            {"-dialog=off", "-batch=on", "-default_answer=y", "-postinst=off", "upgrade-all"},
+            "Actualizando paquetes oficiales como root (conservando configuraciones .conf)..."
+        );
     }
 }
 
